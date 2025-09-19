@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agora"
+version = "0.1.0"
+description = "Agora: Minimal flow-based framework with auditing and observability for LLM workflows."
+authors = [
+  { name = "thebnbrkr", email = "your-email@example.com" }
+]
+license = { text = "MIT" }
+readme = "README.md"
+requires-python = ">=3.8"
+
+dependencies = []
+
+[tool.setuptools]
+packages = ["agora"]
