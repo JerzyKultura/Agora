@@ -63,6 +63,7 @@ class BaseNode:
 
 
 class _ConditionalTransition:
+    """Internal helper for conditional transitions (node - 'action' >> next_node)"""
     def __init__(self, src, action): 
         self.src, self.action = src, action
     def __rshift__(self, tgt): return self.src.next(tgt, self.action)
@@ -146,4 +147,8 @@ class Flow(BaseNode):
             lines.append(f"    {edge['from']} -->{action_label} {edge['to']}")
         return "\n".join(lines)
 
+# ======================================================================
+# PUBLIC API
+# ======================================================================
 
+__all__ = ['BaseNode', 'Node', 'BatchNode', 'Flow']
