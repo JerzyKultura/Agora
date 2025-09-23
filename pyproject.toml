@@ -15,5 +15,11 @@ requires-python = ">=3.8"
 
 dependencies = []
 
+[project.optional-dependencies]
+telemetry = [
+    "opentelemetry-api",
+    "opentelemetry-sdk"
+]
+
 [tool.setuptools]
 packages = ["agora"]
