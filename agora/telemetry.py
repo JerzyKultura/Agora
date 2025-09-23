@@ -7,7 +7,11 @@ from typing import Dict, Any, List, Optional, Union
 from contextlib import contextmanager
 
 # Import base classes from the core
-from agora import BaseNode, Node, BatchNode, Flow, AsyncNode, AsyncBatchNode, AsyncParallelBatchNode, AsyncFlow, AsyncBatchFlow, AsyncParallelBatchFlow
+from agora import (
+    BaseNode, Node, BatchNode, Flow, 
+    AsyncNode, AsyncBatchNode, AsyncParallelBatchNode, AsyncFlow, 
+    AsyncBatchFlow, AsyncParallelBatchFlow
+)
 
 # Optional OpenTelemetry integration
 try:
@@ -159,16 +163,11 @@ class AuditLogger:
 
 
 # ======================================================================
-# AUDITED SYNC CLASSES
+# AUDIT MIXINS (DRY IMPLEMENTATION)
 # ======================================================================
 
-class AuditedNode(Node):
-    """Node with audit logging and optional OpenTelemetry tracing"""
-    
-    def __init__(self, audit_logger: AuditLogger, name=None, max_retries=1, wait=0):
-        super().__init__(name, max_retries, wait)
-        self.audit_logger = audit_logger
-        self.phase_times = {}
+class AuditMixin:
+    """Common audit functionality for sync nodes"""
     
     def _time_phase(self, phase_name: str, func, *args, **kwargs):
         """Time a phase execution"""
@@ -181,7 +180,8 @@ class AuditedNode(Node):
             self.phase_times[phase_name] = (time.time() - start_time) * 1000
             raise
     
-    def _run(self, shared):
+    def _audit_run(self, shared):
+        """Common audited run logic for sync nodes"""
         self.audit_logger.log_node_start(self.name, self.__class__.__name__, self.params)
         total_start = time.time()
         
@@ -215,84 +215,7 @@ class AuditedNode(Node):
                 if span:
                     span.set_attribute("latency_ms", total_latency)
                     span.set_attribute("result_type", type(post_result).__name__)
-                
-                return post_result
-                
-            except Exception as exc:
-                total_latency = (time.time() - total_start) * 1000
-                retry_count = getattr(self, 'cur_retry', 0)
-                
-                # Log error
-                self.audit_logger.log_node_error(
-                    self.name,
-                    self.__class__.__name__,
-                    exc,
-                    retry_count,
-                    total_latency
-                )
-                
-                # Set span error status
-                if span:
-                    span.set_attribute("latency_ms", total_latency)
-                    span.set_attribute("retry_count", retry_count)
-                
-                return self.on_error(exc, shared)
-
-
-class AuditedBatchNode(BatchNode):
-    """BatchNode with audit logging and optional OpenTelemetry tracing"""
-    
-    def __init__(self, audit_logger: AuditLogger, name=None, max_retries=1, wait=0):
-        super().__init__(name, max_retries, wait)
-        self.audit_logger = audit_logger
-        self.phase_times = {}
-    
-    def _time_phase(self, phase_name: str, func, *args, **kwargs):
-        """Time a phase execution"""
-        start_time = time.time()
-        try:
-            result = func(*args, **kwargs)
-            self.phase_times[phase_name] = (time.time() - start_time) * 1000
-            return result
-        except Exception as e:
-            self.phase_times[phase_name] = (time.time() - start_time) * 1000
-            raise
-    
-    def _run(self, shared):
-        self.audit_logger.log_node_start(self.name, self.__class__.__name__, self.params)
-        total_start = time.time()
-        
-        with self.audit_logger.otel_span(
-            f"batch_node.{self.name}",
-            node_name=self.name,
-            node_type=self.__class__.__name__
-        ) as span:
-            try:
-                self.before_run(shared)
-                
-                # Time each phase
-                prep_result = self._time_phase("prep", self.prep, shared)
-                exec_result = self._time_phase("exec", self._exec, prep_result)
-                post_result = self._time_phase("post", self.post, shared, prep_result, exec_result)
-                
-                self.after_run(shared)
-                
-                total_latency = (time.time() - total_start) * 1000
-                
-                # Log success
-                self.audit_logger.log_node_success(
-                    self.name,
-                    self.__class__.__name__,
-                    post_result,
-                    total_latency,
-                    self.phase_times.copy()
-                )
-                
-                # Set span attributes
-                if span:
-                    span.set_attribute("latency_ms", total_latency)
-                    span.set_attribute("result_type", type(post_result).__name__)
-                    if isinstance(exec_result, list):
+                    if hasattr(exec_result, '__len__'):
                         span.set_attribute("batch_size", len(exec_result))
                 
                 return post_result
@@ -318,21 +241,133 @@ class AuditedBatchNode(BatchNode):
                 return self.on_error(exc, shared)
 
 
+class AsyncAuditMixin:
+    """Common audit functionality for async nodes"""
+    
+    async def _time_phase_async(self, phase_name: str, func, *args, **kwargs):
+        """Time an async phase execution"""
+        start_time = time.time()
+        try:
+            result = await func(*args, **kwargs)
+            self.phase_times[phase_name] = (time.time() - start_time) * 1000
+            return result
+        except Exception as e:
+            self.phase_times[phase_name] = (time.time() - start_time) * 1000
+            raise
+    
+    async def _audit_run_async(self, shared):
+        """Common audited run logic for async nodes"""
+        self.audit_logger.log_node_start(self.name, self.__class__.__name__, self.params)
+        total_start = time.time()
+        
+        with self.audit_logger.otel_span(
+            f"async_node.{self.name}",
+            node_name=self.name,
+            node_type=self.__class__.__name__
+        ) as span:
+            try:
+                await self.before_run_async(shared)
+                
+                # Time each phase
+                prep_result = await self._time_phase_async("prep", self.prep_async, shared)
+                exec_result = await self._time_phase_async("exec", self._exec_async, prep_result)
+                post_result = await self._time_phase_async("post", self.post_async, shared, prep_result, exec_result)
+                
+                await self.after_run_async(shared)
+                
+                total_latency = (time.time() - total_start) * 1000
+                
+                # Log success
+                self.audit_logger.log_node_success(
+                    self.name,
+                    self.__class__.__name__,
+                    post_result,
+                    total_latency,
+                    self.phase_times.copy()
+                )
+                
+                # Set span attributes
+                if span:
+                    span.set_attribute("latency_ms", total_latency)
+                    span.set_attribute("result_type", type(post_result).__name__)
+                    if hasattr(exec_result, '__len__'):
+                        span.set_attribute("batch_size", len(exec_result))
+                
+                return post_result
+                
+            except Exception as exc:
+                total_latency = (time.time() - total_start) * 1000
+                retry_count = getattr(self, 'cur_retry', 0)
+                
+                # Log error
+                self.audit_logger.log_node_error(
+                    self.name,
+                    self.__class__.__name__,
+                    exc,
+                    retry_count,
+                    total_latency
+                )
+                
+                # Set span error status
+                if span:
+                    span.set_attribute("latency_ms", total_latency)
+                    span.set_attribute("retry_count", retry_count)
+                
+                return await self.on_error_async(exc, shared)
+
+
+# ======================================================================
+# AUDITED SYNC CLASSES
+# ======================================================================
+
+class AuditedNode(AuditMixin, Node):
+    """Node with audit logging and optional OpenTelemetry tracing"""
+    
+    def __init__(self, name=None, audit_logger: AuditLogger = None, max_retries=1, wait=0):
+        super().__init__(name, max_retries, wait)
+        self.audit_logger = audit_logger
+        self.phase_times = {}
+    
+    def _run(self, shared):
+        if self.audit_logger:
+            return self._audit_run(shared)
+        else:
+            return super()._run(shared)
+
+
+class AuditedBatchNode(AuditMixin, BatchNode):
+    """BatchNode with audit logging and optional OpenTelemetry tracing"""
+    
+    def __init__(self, name=None, audit_logger: AuditLogger = None, max_retries=1, wait=0):
+        super().__init__(name, max_retries, wait)
+        self.audit_logger = audit_logger
+        self.phase_times = {}
+    
+    def _run(self, shared):
+        if self.audit_logger:
+            return self._audit_run(shared)
+        else:
+            return super()._run(shared)
+
+
 class AuditedFlow(Flow):
     """Flow with audit logging and optional OpenTelemetry tracing"""
     
-    def __init__(self, audit_logger: AuditLogger, name=None, start=None):
+    def __init__(self, name=None, audit_logger: AuditLogger = None, start=None):
         super().__init__(name, start)
         self.audit_logger = audit_logger
     
     def get_next_node(self, curr, action):
         """Override to log transitions"""
         next_node = super().get_next_node(curr, action)
-        if next_node:
+        if next_node and self.audit_logger:
             self.audit_logger.log_flow_transition(curr.name, next_node.name, action or "default")
         return next_node
     
     def _run(self, shared):
+        if not self.audit_logger:
+            return super()._run(shared)
+        
         self.audit_logger.log_flow_start(self.name, self.__class__.__name__)
         total_start = time.time()
         
@@ -388,98 +423,69 @@ class AuditedFlow(Flow):
 # AUDITED ASYNC CLASSES
 # ======================================================================
 
-class AuditedAsyncNode(AsyncNode):
+class AuditedAsyncNode(AsyncAuditMixin, AsyncNode):
     """AsyncNode with audit logging and optional OpenTelemetry tracing"""
     
-    def __init__(self, audit_logger: AuditLogger, name=None, max_retries=1, wait=0):
+    def __init__(self, name=None, audit_logger: AuditLogger = None, max_retries=1, wait=0):
         super().__init__(name, max_retries, wait)
         self.audit_logger = audit_logger
         self.phase_times = {}
     
-    async def _time_phase_async(self, phase_name: str, func, *args, **kwargs):
-        """Time an async phase execution"""
-        start_time = time.time()
-        try:
-            result = await func(*args, **kwargs)
-            self.phase_times[phase_name] = (time.time() - start_time) * 1000
-            return result
-        except Exception as e:
-            self.phase_times[phase_name] = (time.time() - start_time) * 1000
-            raise
+    async def _run_async(self, shared):
+        if self.audit_logger:
+            return await self._audit_run_async(shared)
+        else:
+            return await super()._run_async(shared)
+
+
+class AuditedAsyncBatchNode(AsyncAuditMixin, AsyncBatchNode):
+    """AsyncBatchNode with audit logging and optional OpenTelemetry tracing"""
+    
+    def __init__(self, name=None, audit_logger: AuditLogger = None, max_retries=1, wait=0):
+        super().__init__(name, max_retries, wait)
+        self.audit_logger = audit_logger
+        self.phase_times = {}
     
     async def _run_async(self, shared):
-        self.audit_logger.log_node_start(self.name, self.__class__.__name__, self.params)
-        total_start = time.time()
-        
-        with self.audit_logger.otel_span(
-            f"async_node.{self.name}",
-            node_name=self.name,
-            node_type=self.__class__.__name__
-        ) as span:
-            try:
-                await self.before_run_async(shared)
-                
-                # Time each phase
-                prep_result = await self._time_phase_async("prep", self.prep_async, shared)
-                exec_result = await self._time_phase_async("exec", self._exec_async, prep_result)
-                post_result = await self._time_phase_async("post", self.post_async, shared, prep_result, exec_result)
-                
-                await self.after_run_async(shared)
-                
-                total_latency = (time.time() - total_start) * 1000
-                
-                # Log success
-                self.audit_logger.log_node_success(
-                    self.name,
-                    self.__class__.__name__,
-                    post_result,
-                    total_latency,
-                    self.phase_times.copy()
-                )
-                
-                # Set span attributes
-                if span:
-                    span.set_attribute("latency_ms", total_latency)
-                    span.set_attribute("result_type", type(post_result).__name__)
-                
-                return post_result
-                
-            except Exception as exc:
-                total_latency = (time.time() - total_start) * 1000
-                retry_count = getattr(self, 'cur_retry', 0)
-                
-                # Log error
-                self.audit_logger.log_node_error(
-                    self.name,
-                    self.__class__.__name__,
-                    exc,
-                    retry_count,
-                    total_latency
-                )
-                
-                # Set span error status
-                if span:
-                    span.set_attribute("latency_ms", total_latency)
-                    span.set_attribute("retry_count", retry_count)
-                
-                return await self.on_error_async(exc, shared)
+        if self.audit_logger:
+            return await self._audit_run_async(shared)
+        else:
+            return await super()._run_async(shared)
+
+
+class AuditedAsyncParallelBatchNode(AsyncAuditMixin, AsyncParallelBatchNode):
+    """AsyncParallelBatchNode with audit logging and optional OpenTelemetry tracing"""
+    
+    def __init__(self, name=None, audit_logger: AuditLogger = None, max_retries=1, wait=0):
+        super().__init__(name, max_retries, wait)
+        self.audit_logger = audit_logger
+        self.phase_times = {}
+    
+    async def _run_async(self, shared):
+        if self.audit_logger:
+            return await self._audit_run_async(shared)
+        else:
+            return await super()._run_async(shared)
 
 
 class AuditedAsyncFlow(AsyncFlow):
     """AsyncFlow with audit logging and optional OpenTelemetry tracing"""
     
-    def __init__(self, audit_logger: AuditLogger, name=None, start=None):
+    def __init__(self, name=None, audit_logger: AuditLogger = None, start=None):
         super().__init__(name, start)
         self.audit_logger = audit_logger
     
     def get_next_node(self, curr, action):
         """Override to log transitions"""
         next_node = super().get_next_node(curr, action)
-        if next_node:
+        if next_node and self.audit_logger:
             self.audit_logger.log_flow_transition(curr.name, next_node.name, action or "default")
         return next_node
     
     async def _run_async(self, shared):
+        if not self.audit_logger:
+            return await super()._run_async(shared)
+        
         self.audit_logger.log_flow_start(self.name, self.__class__.__name__)
         total_start = time.time()
         
@@ -538,5 +544,6 @@ class AuditedAsyncFlow(AsyncFlow):
 __all__ = [
     'AuditLogger',
     'AuditedNode', 'AuditedBatchNode', 'AuditedFlow',
-    'AuditedAsyncNode', 'AuditedAsyncFlow'
+    'AuditedAsyncNode', 'AuditedAsyncBatchNode', 'AuditedAsyncParallelBatchNode', 
+    'AuditedAsyncFlow'
 ]
