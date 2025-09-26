@@ -24,14 +24,14 @@ Agora builds directly upon PocketFlow's core concepts and API design. If you're 
 
 ## Key Features
 
-- ** Workflow Orchestration**: PocketFlow's proven node-based architecture
-- ** Comprehensive Audit Logging**: Track every execution with detailed JSON audit trails
-- ** OpenTelemetry Integration**: Built-in distributed tracing and observability
-- ** Async & Sync Support**: Full support for both synchronous and asynchronous workflows
-- ** Retry Logic & Error Handling**: Robust error handling with configurable retry mechanisms
-- ** Batch Processing**: Sequential and parallel batch processing capabilities
-- ** Conditional Flow Control**: Dynamic workflow routing based on execution results
-- ** Visual Flow Diagrams**: Generate Mermaid diagrams of your workflows
+- **Workflow Orchestration**: PocketFlow's proven node-based architecture
+- **Comprehensive Audit Logging**: Track every execution with detailed JSON audit trails
+- **OpenTelemetry Integration**: Built-in distributed tracing and observability
+- **Async & Sync Support**: Full support for both synchronous and asynchronous workflows
+- **Retry Logic & Error Handling**: Robust error handling with configurable retry mechanisms
+- **Batch Processing**: Sequential and parallel batch processing capabilities
+- **Conditional Flow Control**: Dynamic workflow routing based on execution results
+- **Visual Flow Diagrams**: Generate Mermaid diagrams of your workflows
 
 ## Installation
 
