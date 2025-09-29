@@ -146,20 +146,50 @@ class AuditLogger:
             counts[event_type] = counts.get(event_type, 0) + 1
         return counts
     
-    @contextmanager
-    def otel_span(self, name: str, **attributes):
-        """Create OpenTelemetry span if available, otherwise no-op"""
-        if self.tracer:
-            with self.tracer.start_as_current_span(name) as span:
-                for key, value in attributes.items():
-                    span.set_attribute(key, str(value))
-                try:
-                    yield span
-                except Exception as e:
-                    span.set_status(Status(StatusCode.ERROR, str(e)))
-                    raise
-        else:
-            yield None
+    # ====================================================================
+    # FIX #1: Replace context manager with manual span management
+    # ====================================================================
+    
+    def create_span(self, name: str, **attributes):
+        """
+        Create a span without modifying current context (safe for async).
+    
+        Uses start_span() instead of start_as_current_span() to prevent
+        context bleeding in concurrent async operations.
+
+        Must be manually ended with end_span().
+    
+        Returns:
+            span object or None if OTel unavailable
+        """
+        if not self.tracer:
+            return None
+        
+        # Create span without making it current (key fix for async safety)
+        span = self.tracer.start_span(name)
+        
+        # Set attributes
+        for key, value in attributes.items():
+            # Convert to string to handle any type safely
+            span.set_attribute(key, str(value) if value is not None else "None")
+        
+        return span
+    
+    def end_span(self, span, error: Exception = None):
+        """
+        Safely end a span with optional error status.
+        
+        Args:
+            span: The span to end (can be None)
+            error: Optional exception to mark span as failed
+        """
+        if span is None:
+            return
+        
+        if error:
+            span.set_status(Status(StatusCode.ERROR, str(error)))
+        
+        span.end()
 
 
 # ======================================================================
@@ -185,60 +215,89 @@ class AuditMixin:
         self.audit_logger.log_node_start(self.name, self.__class__.__name__, self.params)
         total_start = time.time()
         
-        with self.audit_logger.otel_span(
+        # FIX #1: Manual span creation instead of context manager
+        span = self.audit_logger.create_span(
             f"node.{self.name}",
             node_name=self.name,
             node_type=self.__class__.__name__
-        ) as span:
-            try:
-                self.before_run(shared)
-                
-                # Time each phase
-                prep_result = self._time_phase("prep", self.prep, shared)
-                exec_result = self._time_phase("exec", self._exec, prep_result)
-                post_result = self._time_phase("post", self.post, shared, prep_result, exec_result)
-                
-                self.after_run(shared)
-                
-                total_latency = (time.time() - total_start) * 1000
-                
-                # Log success
-                self.audit_logger.log_node_success(
-                    self.name, 
-                    self.__class__.__name__, 
-                    post_result,
-                    total_latency,
-                    self.phase_times.copy()
-                )
-                
-                # Set span attributes
-                if span:
-                    span.set_attribute("latency_ms", total_latency)
-                    span.set_attribute("result_type", type(post_result).__name__)
-                    if hasattr(exec_result, '__len__'):
-                        span.set_attribute("batch_size", len(exec_result))
-                
-                return post_result
-                
-            except Exception as exc:
-                total_latency = (time.time() - total_start) * 1000
-                retry_count = getattr(self, 'cur_retry', 0)
-                
-                # Log error
-                self.audit_logger.log_node_error(
-                    self.name,
-                    self.__class__.__name__,
-                    exc,
-                    retry_count,
-                    total_latency
-                )
-                
-                # Set span error status
-                if span:
-                    span.set_attribute("latency_ms", total_latency)
-                    span.set_attribute("retry_count", retry_count)
-                
-                return self.on_error(exc, shared)
+        )
+        
+        try:
+            self.before_run(shared)
+            
+            # Time each phase
+            prep_result = self._time_phase("prep", self.prep, shared)
+            exec_result = self._time_phase("exec", self._exec, prep_result)
+            post_result = self._time_phase("post", self.post, shared, prep_result, exec_result)
+            
+            self.after_run(shared)
+            
+            total_latency = (time.time() - total_start) * 1000
+            
+            # ================================================================
+            # FIX #3: Track both input and output batch sizes
+            # ================================================================
+            # Why: Previously only logged output size. If a batch processor
+            # receives 100 items but only outputs 80 (20 failed), we need to
+            # see both numbers to understand the 20% failure rate.
+            #
+            # This is critical for debugging partial batch failures and
+            # understanding throughput degradation.
+            input_size = len(prep_result) if hasattr(prep_result, '__len__') else None
+            output_size = len(exec_result) if hasattr(exec_result, '__len__') else None
+            
+            # Log success with batch size info
+            phase_latencies_with_sizes = {
+                **self.phase_times.copy(),
+                "input_batch_size": input_size,
+                "output_batch_size": output_size
+            }
+            
+            self.audit_logger.log_node_success(
+                self.name, 
+                self.__class__.__name__, 
+                post_result,
+                total_latency,
+                phase_latencies_with_sizes
+            )
+            
+            # Set span attributes
+            if span:
+                span.set_attribute("latency_ms", total_latency)
+                span.set_attribute("result_type", type(post_result).__name__)
+                # Add batch size attributes to span
+                if input_size is not None:
+                    span.set_attribute("input_batch_size", input_size)
+                if output_size is not None:
+                    span.set_attribute("output_batch_size", output_size)
+            
+            # FIX #1: Manually end span (no automatic cleanup from context manager)
+            self.audit_logger.end_span(span)
+            
+            return post_result
+            
+        except Exception as exc:
+            total_latency = (time.time() - total_start) * 1000
+            retry_count = getattr(self, 'cur_retry', 0)
+            
+            # Log error
+            self.audit_logger.log_node_error(
+                self.name,
+                self.__class__.__name__,
+                exc,
+                retry_count,
+                total_latency
+            )
+            
+            # Set span error attributes
+            if span:
+                span.set_attribute("latency_ms", total_latency)
+                span.set_attribute("retry_count", retry_count)
+            
+            # FIX #1: End span with error status
+            self.audit_logger.end_span(span, error=exc)
+            
+            return self.on_error(exc, shared)
 
 
 class AsyncAuditMixin:
@@ -256,64 +315,92 @@ class AsyncAuditMixin:
             raise
     
     async def _audit_run_async(self, shared):
-        """Common audited run logic for async nodes"""
+        """
+        Common audited run logic for async nodes.
+        
+        CRITICAL: This method is called by AsyncParallelBatchNode which uses
+        asyncio.gather() to run multiple instances concurrently. The manual
+        span management here prevents context bleeding between concurrent tasks.
+        """
         self.audit_logger.log_node_start(self.name, self.__class__.__name__, self.params)
         total_start = time.time()
         
-        with self.audit_logger.otel_span(
+        # FIX #1: Manual span creation (CRITICAL for async safety)
+        # Each concurrent task gets its own span that doesn't pollute
+        # the contextvars of other tasks
+        span = self.audit_logger.create_span(
             f"async_node.{self.name}",
             node_name=self.name,
             node_type=self.__class__.__name__
-        ) as span:
-            try:
-                await self.before_run_async(shared)
-                
-                # Time each phase
-                prep_result = await self._time_phase_async("prep", self.prep_async, shared)
-                exec_result = await self._time_phase_async("exec", self._exec_async, prep_result)
-                post_result = await self._time_phase_async("post", self.post_async, shared, prep_result, exec_result)
-                
-                await self.after_run_async(shared)
-                
-                total_latency = (time.time() - total_start) * 1000
-                
-                # Log success
-                self.audit_logger.log_node_success(
-                    self.name,
-                    self.__class__.__name__,
-                    post_result,
-                    total_latency,
-                    self.phase_times.copy()
-                )
-                
-                # Set span attributes
-                if span:
-                    span.set_attribute("latency_ms", total_latency)
-                    span.set_attribute("result_type", type(post_result).__name__)
-                    if hasattr(exec_result, '__len__'):
-                        span.set_attribute("batch_size", len(exec_result))
-                
-                return post_result
-                
-            except Exception as exc:
-                total_latency = (time.time() - total_start) * 1000
-                retry_count = getattr(self, 'cur_retry', 0)
-                
-                # Log error
-                self.audit_logger.log_node_error(
-                    self.name,
-                    self.__class__.__name__,
-                    exc,
-                    retry_count,
-                    total_latency
-                )
-                
-                # Set span error status
-                if span:
-                    span.set_attribute("latency_ms", total_latency)
-                    span.set_attribute("retry_count", retry_count)
-                
-                return await self.on_error_async(exc, shared)
+        )
+        
+        try:
+            await self.before_run_async(shared)
+            
+            # Time each phase
+            prep_result = await self._time_phase_async("prep", self.prep_async, shared)
+            exec_result = await self._time_phase_async("exec", self._exec_async, prep_result)
+            post_result = await self._time_phase_async("post", self.post_async, shared, prep_result, exec_result)
+            
+            await self.after_run_async(shared)
+            
+            total_latency = (time.time() - total_start) * 1000
+            
+            # FIX #3: Track input AND output batch sizes
+            input_size = len(prep_result) if hasattr(prep_result, '__len__') else None
+            output_size = len(exec_result) if hasattr(exec_result, '__len__') else None
+            
+            phase_latencies_with_sizes = {
+                **self.phase_times.copy(),
+                "input_batch_size": input_size,
+                "output_batch_size": output_size
+            }
+            
+            # Log success
+            self.audit_logger.log_node_success(
+                self.name,
+                self.__class__.__name__,
+                post_result,
+                total_latency,
+                phase_latencies_with_sizes
+            )
+            
+            # Set span attributes
+            if span:
+                span.set_attribute("latency_ms", total_latency)
+                span.set_attribute("result_type", type(post_result).__name__)
+                if input_size is not None:
+                    span.set_attribute("input_batch_size", input_size)
+                if output_size is not None:
+                    span.set_attribute("output_batch_size", output_size)
+            
+            # FIX #1: Manually end span
+            self.audit_logger.end_span(span)
+            
+            return post_result
+            
+        except Exception as exc:
+            total_latency = (time.time() - total_start) * 1000
+            retry_count = getattr(self, 'cur_retry', 0)
+            
+            # Log error
+            self.audit_logger.log_node_error(
+                self.name,
+                self.__class__.__name__,
+                exc,
+                retry_count,
+                total_latency
+            )
+            
+            # Set span error attributes
+            if span:
+                span.set_attribute("latency_ms", total_latency)
+                span.set_attribute("retry_count", retry_count)
+            
+            # FIX #1: End span with error
+            self.audit_logger.end_span(span, error=exc)
+            
+            return await self.on_error_async(exc, shared)
 
 
 # ======================================================================
@@ -371,52 +458,60 @@ class AuditedFlow(Flow):
         self.audit_logger.log_flow_start(self.name, self.__class__.__name__)
         total_start = time.time()
         
-        with self.audit_logger.otel_span(
+        # FIX #1: Manual span creation
+        span = self.audit_logger.create_span(
             f"flow.{self.name}",
             flow_name=self.name,
             flow_type=self.__class__.__name__
-        ) as span:
-            try:
-                self.before_run(shared)
-                
-                prep_result = self.prep(shared)
-                orch_result = self._orch(shared)
-                post_result = self.post(shared, prep_result, orch_result)
-                
-                self.after_run(shared)
-                
-                total_latency = (time.time() - total_start) * 1000
-                
-                # Log flow end
-                self.audit_logger.log_flow_end(
-                    self.name,
-                    self.__class__.__name__,
-                    post_result,
-                    total_latency
-                )
-                
-                # Set span attributes
-                if span:
-                    span.set_attribute("total_latency_ms", total_latency)
-                
-                return post_result
-                
-            except Exception as exc:
-                total_latency = (time.time() - total_start) * 1000
-                
-                # Log flow error as node error
-                self.audit_logger.log_node_error(
-                    self.name,
-                    self.__class__.__name__,
-                    exc,
-                    0,
-                    total_latency
-                )
-                
-                if span:
-                    span.set_attribute("total_latency_ms", total_latency)
-                
-                return self.on_error(exc, shared)
+        )
+        
+        try:
+            self.before_run(shared)
+            
+            prep_result = self.prep(shared)
+            orch_result = self._orch(shared)
+            post_result = self.post(shared, prep_result, orch_result)
+            
+            self.after_run(shared)
+            
+            total_latency = (time.time() - total_start) * 1000
+            
+            # Log flow end
+            self.audit_logger.log_flow_end(
+                self.name,
+                self.__class__.__name__,
+                post_result,
+                total_latency
+            )
+            
+            # Set span attributes
+            if span:
+                span.set_attribute("total_latency_ms", total_latency)
+            
+            # FIX #1: Manually end span
+            self.audit_logger.end_span(span)
+            
+            return post_result
+            
+        except Exception as exc:
+            total_latency = (time.time() - total_start) * 1000
+            
+            # Log flow error
+            self.audit_logger.log_node_error(
+                self.name,
+                self.__class__.__name__,
+                exc,
+                0,
+                total_latency
+            )
+            
+            if span:
+                span.set_attribute("total_latency_ms", total_latency)
+            
+            # FIX #1: End span with error
+            self.audit_logger.end_span(span, error=exc)
+            
+            return self.on_error(exc, shared)
 
 
 # ======================================================================
@@ -454,7 +549,13 @@ class AuditedAsyncBatchNode(AsyncAuditMixin, AsyncBatchNode):
 
 
 class AuditedAsyncParallelBatchNode(AsyncAuditMixin, AsyncParallelBatchNode):
-    """AsyncParallelBatchNode with audit logging and optional OpenTelemetry tracing"""
+    """
+    AsyncParallelBatchNode with audit logging and optional OpenTelemetry tracing.
+    
+    IMPORTANT: This class uses asyncio.gather() to process items concurrently.
+    The manual span management in AsyncAuditMixin is CRITICAL to prevent
+    span context bleeding between concurrent tasks.
+    """
     
     def __init__(self, name=None, audit_logger: AuditLogger = None, max_retries=1, wait=0):
         super().__init__(name, max_retries, wait)
@@ -489,52 +590,60 @@ class AuditedAsyncFlow(AsyncFlow):
         self.audit_logger.log_flow_start(self.name, self.__class__.__name__)
         total_start = time.time()
         
-        with self.audit_logger.otel_span(
+        # FIX #1: Manual span creation
+        span = self.audit_logger.create_span(
             f"async_flow.{self.name}",
             flow_name=self.name,
             flow_type=self.__class__.__name__
-        ) as span:
-            try:
-                await self.before_run_async(shared)
-                
-                prep_result = await self.prep_async(shared)
-                orch_result = await self._orch_async(shared)
-                post_result = await self.post_async(shared, prep_result, orch_result)
-                
-                await self.after_run_async(shared)
-                
-                total_latency = (time.time() - total_start) * 1000
-                
-                # Log flow end
-                self.audit_logger.log_flow_end(
-                    self.name,
-                    self.__class__.__name__,
-                    post_result,
-                    total_latency
-                )
-                
-                # Set span attributes
-                if span:
-                    span.set_attribute("total_latency_ms", total_latency)
-                
-                return post_result
-                
-            except Exception as exc:
-                total_latency = (time.time() - total_start) * 1000
-                
-                # Log flow error
-                self.audit_logger.log_node_error(
-                    self.name,
-                    self.__class__.__name__,
-                    exc,
-                    0,
-                    total_latency
-                )
-                
-                if span:
-                    span.set_attribute("total_latency_ms", total_latency)
-                
-                return await self.on_error_async(exc, shared)
+        )
+        
+        try:
+            await self.before_run_async(shared)
+            
+            prep_result = await self.prep_async(shared)
+            orch_result = await self._orch_async(shared)
+            post_result = await self.post_async(shared, prep_result, orch_result)
+            
+            await self.after_run_async(shared)
+            
+            total_latency = (time.time() - total_start) * 1000
+            
+            # Log flow end
+            self.audit_logger.log_flow_end(
+                self.name,
+                self.__class__.__name__,
+                post_result,
+                total_latency
+            )
+            
+            # Set span attributes
+            if span:
+                span.set_attribute("total_latency_ms", total_latency)
+            
+            # FIX #1: Manually end span
+            self.audit_logger.end_span(span)
+            
+            return post_result
+            
+        except Exception as exc:
+            total_latency = (time.time() - total_start) * 1000
+            
+            # Log flow error
+            self.audit_logger.log_node_error(
+                self.name,
+                self.__class__.__name__,
+                exc,
+                0,
+                total_latency
+            )
+            
+            if span:
+                span.set_attribute("total_latency_ms", total_latency)
+            
+            # FIX #1: End span with error
+            self.audit_logger.end_span(span, error=exc)
+            
+            return await self.on_error_async(exc, shared)
 
 
 # ======================================================================
