@@ -41,6 +41,7 @@ class AuditLogger:
         # Storage for completed spans (for JSON export)
         self.completed_spans: List[Dict[str, Any]] = []
         self.span_hierarchy: Dict[int, Optional[int]] = {}  # child_id -> parent_id
+        self._span_id_map: Dict[int, str] = {}  # internal_id -> otel_span_id
         
         # Ensure save directory exists
         os.makedirs(save_dir, exist_ok=True)
@@ -225,21 +226,15 @@ class AuditLogger:
         span_id = id(span)
         parent_id = self.span_hierarchy.get(span_id)
         
-        # Get parent span ID from hierarchy
-        parent_span_id = None
-        if parent_id:
-            # Look up parent in completed spans
-            for completed in self.completed_spans:
-                if completed.get("_internal_id") == parent_id:
-                    parent_span_id = completed.get("span_id")
-                    break
+        # Store the actual OpenTelemetry span ID for this span
+        current_otel_span_id = format(span_context.span_id, '016x') if span_context else None
         
         # Store completed span info
         span_info = {
             "name": span.name if hasattr(span, 'name') else "unknown",
             "trace_id": format(span_context.trace_id, '032x') if span_context else None,
-            "span_id": format(span_context.span_id, '016x') if span_context else None,
-            "parent_span_id": parent_span_id,
+            "span_id": current_otel_span_id,
+            "parent_span_id": None,  # Will be set below
             "duration_ms": round(duration_ms, 2),
             "attributes": {},
             "status": "error" if error else "ok",
@@ -252,6 +247,15 @@ class AuditLogger:
         # Extract attributes from span
         if hasattr(span, 'attributes') and span.attributes:
             span_info["attributes"] = dict(span.attributes)
+        
+        # Store mapping from internal ID to OpenTelemetry span ID
+        if not hasattr(self, '_span_id_map'):
+            self._span_id_map = {}
+        self._span_id_map[span_id] = current_otel_span_id
+        
+        # Set parent_span_id if this span has a parent
+        if parent_id and parent_id in self._span_id_map:
+            span_info["parent_span_id"] = self._span_id_map[parent_id]
         
         self.completed_spans.append(span_info)
         
