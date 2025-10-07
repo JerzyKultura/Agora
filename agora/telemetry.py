@@ -1,6 +1,7 @@
 import json
 import time
 import uuid
+import os
 import warnings
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Union
@@ -24,17 +25,25 @@ except ImportError:
 
 
 # ======================================================================
-# AUDIT LOGGER
+# AUDIT LOGGER (ENHANCED WITH HIERARCHICAL SPAN SUPPORT)
 # ======================================================================
 
 class AuditLogger:
     """Records node execution events and flow transitions with JSON export capability"""
     
-    def __init__(self, session_id: Optional[str] = None):
+    def __init__(self, session_id: Optional[str] = None, save_dir: str = "./logs"):
         self.session_id = session_id or str(uuid.uuid4())
         self.events: List[Dict[str, Any]] = []
         self.start_time = datetime.utcnow()
+        self.save_dir = save_dir
         self.tracer = None
+        
+        # Storage for completed spans (for JSON export)
+        self.completed_spans: List[Dict[str, Any]] = []
+        self.span_hierarchy: Dict[int, Optional[int]] = {}  # child_id -> parent_id
+        
+        # Ensure save directory exists
+        os.makedirs(save_dir, exist_ok=True)
         
         # Initialize OpenTelemetry tracer if available
         if OTEL_AVAILABLE:
@@ -126,7 +135,8 @@ class AuditLogger:
     
     def save_json(self, filename: str):
         """Save audit log to JSON file"""
-        with open(filename, 'w') as f:
+        filepath = os.path.join(self.save_dir, filename) if not os.path.isabs(filename) else filename
+        with open(filepath, 'w') as f:
             f.write(self.to_json())
     
     def get_summary(self) -> Dict[str, Any]:
@@ -147,37 +157,52 @@ class AuditLogger:
         return counts
     
     # ====================================================================
-    # FIX #1: Replace context manager with manual span management
+    # HIERARCHICAL SPAN MANAGEMENT
     # ====================================================================
     
-    def create_span(self, name: str, **attributes):
+    def create_span(self, name: str, parent=None, **attrs):
         """
-        Create a span without modifying current context (safe for async).
-    
-        Uses start_span() instead of start_as_current_span() to prevent
-        context bleeding in concurrent async operations.
-
-        Must be manually ended with end_span().
-    
+        Create a span with optional parent for hierarchical tracing.
+        
+        Args:
+            name: Span name (e.g., "flow.chat_flow", "node.send_prompt")
+            parent: Parent span object (None for root spans)
+            **attrs: Additional attributes to set on the span
+        
         Returns:
-            span object or None if OTel unavailable
+            Span object or None if OTel unavailable
         """
         if not self.tracer:
             return None
         
-        # Create span without making it current (key fix for async safety)
-        span = self.tracer.start_span(name)
+        # Create span with parent context if provided
+        if parent is not None:
+            # Create a context from the parent span
+            ctx = trace.set_span_in_context(parent)
+            span = self.tracer.start_span(name, context=ctx)
+            
+            # Track hierarchy
+            span_id = id(span)
+            parent_id = id(parent)
+            self.span_hierarchy[span_id] = parent_id
+        else:
+            # Root span (no parent)
+            span = self.tracer.start_span(name)
+            self.span_hierarchy[id(span)] = None
         
-        # Set attributes
-        for key, value in attributes.items():
-            # Convert to string to handle any type safely
+        # Set custom attributes
+        for key, value in attrs.items():
             span.set_attribute(key, str(value) if value is not None else "None")
+        
+        # Store start time for duration calculation
+        if not hasattr(span, '_agora_start_time'):
+            span._agora_start_time = time.time()
         
         return span
     
     def end_span(self, span, error: Exception = None):
         """
-        Safely end a span with optional error status.
+        End a span and record it for JSON export.
         
         Args:
             span: The span to end (can be None)
@@ -186,14 +211,77 @@ class AuditLogger:
         if span is None:
             return
         
+        # Set error status if provided
         if error:
             span.set_status(Status(StatusCode.ERROR, str(error)))
+            span.set_attribute("error.type", type(error).__name__)
+            span.set_attribute("error.message", str(error))
         
+        # Calculate duration
+        duration_ms = (time.time() - getattr(span, '_agora_start_time', time.time())) * 1000
+        
+        # Extract span information for JSON export
+        span_context = span.get_span_context()
+        span_id = id(span)
+        parent_id = self.span_hierarchy.get(span_id)
+        
+        # Store completed span info
+        span_info = {
+            "name": span.name if hasattr(span, 'name') else "unknown",
+            "trace_id": format(span_context.trace_id, '032x') if span_context else None,
+            "span_id": format(span_context.span_id, '016x') if span_context else None,
+            "parent_span_id": format(trace.get_span_in_context(
+                trace.set_span_in_context(span)
+            ).get_span_context().span_id, '016x') if parent_id else None,
+            "duration_ms": round(duration_ms, 2),
+            "attributes": {},
+            "status": "error" if error else "ok",
+            "start_time": datetime.fromtimestamp(
+                getattr(span, '_agora_start_time', time.time())
+            ).isoformat()
+        }
+        
+        # Extract attributes from span
+        if hasattr(span, 'attributes') and span.attributes:
+            span_info["attributes"] = dict(span.attributes)
+        
+        self.completed_spans.append(span_info)
+        
+        # End the span
         span.end()
+    
+    def save_trace_json(self, filename: str = "trace.json"):
+        """
+        Save hierarchical trace data to JSON file.
+        
+        Args:
+            filename: Output filename (relative to save_dir or absolute path)
+        """
+        filepath = os.path.join(self.save_dir, filename) if not os.path.isabs(filename) else filename
+        
+        # Get trace_id from first span if available
+        trace_id = None
+        if self.completed_spans:
+            trace_id = self.completed_spans[0].get("trace_id")
+        
+        trace_data = {
+            "trace_id": trace_id,
+            "session_id": self.session_id,
+            "service_name": "agora",
+            "start_time": self.start_time.isoformat(),
+            "end_time": datetime.utcnow().isoformat(),
+            "total_spans": len(self.completed_spans),
+            "spans": self.completed_spans
+        }
+        
+        with open(filepath, 'w') as f:
+            f.write(json.dumps(trace_data, indent=2))
+        
+        print(f"✅ Trace saved to {filepath}")
 
 
 # ======================================================================
-# AUDIT MIXINS (DRY IMPLEMENTATION)
+# AUDIT MIXINS (WITH SPAN HIERARCHY SUPPORT)
 # ======================================================================
 
 class AuditMixin:
@@ -211,13 +299,17 @@ class AuditMixin:
             raise
     
     def _audit_run(self, shared):
-        """Common audited run logic for sync nodes"""
+        """Common audited run logic for sync nodes with span hierarchy"""
         self.audit_logger.log_node_start(self.name, self.__class__.__name__, self.params)
         total_start = time.time()
         
-        # FIX #1: Manual span creation instead of context manager
+        # Get parent span from shared context
+        parent_span = shared.get("parent_span")
+        
+        # Create child span with parent relationship
         span = self.audit_logger.create_span(
             f"node.{self.name}",
+            parent=parent_span,
             node_name=self.name,
             node_type=self.__class__.__name__
         )
@@ -234,19 +326,10 @@ class AuditMixin:
             
             total_latency = (time.time() - total_start) * 1000
             
-            # ================================================================
-            # FIX #3: Track both input and output batch sizes
-            # ================================================================
-            # Why: Previously only logged output size. If a batch processor
-            # receives 100 items but only outputs 80 (20 failed), we need to
-            # see both numbers to understand the 20% failure rate.
-            #
-            # This is critical for debugging partial batch failures and
-            # understanding throughput degradation.
+            # Track batch sizes
             input_size = len(prep_result) if hasattr(prep_result, '__len__') else None
             output_size = len(exec_result) if hasattr(exec_result, '__len__') else None
             
-            # Log success with batch size info
             phase_latencies_with_sizes = {
                 **self.phase_times.copy(),
                 "input_batch_size": input_size,
@@ -263,15 +346,13 @@ class AuditMixin:
             
             # Set span attributes
             if span:
-                span.set_attribute("latency_ms", total_latency)
+                span.set_attribute("latency_ms", str(total_latency))
                 span.set_attribute("result_type", type(post_result).__name__)
-                # Add batch size attributes to span
                 if input_size is not None:
-                    span.set_attribute("input_batch_size", input_size)
+                    span.set_attribute("input_batch_size", str(input_size))
                 if output_size is not None:
-                    span.set_attribute("output_batch_size", output_size)
+                    span.set_attribute("output_batch_size", str(output_size))
             
-            # FIX #1: Manually end span (no automatic cleanup from context manager)
             self.audit_logger.end_span(span)
             
             return post_result
@@ -280,7 +361,6 @@ class AuditMixin:
             total_latency = (time.time() - total_start) * 1000
             retry_count = getattr(self, 'cur_retry', 0)
             
-            # Log error
             self.audit_logger.log_node_error(
                 self.name,
                 self.__class__.__name__,
@@ -289,12 +369,10 @@ class AuditMixin:
                 total_latency
             )
             
-            # Set span error attributes
             if span:
-                span.set_attribute("latency_ms", total_latency)
-                span.set_attribute("retry_count", retry_count)
+                span.set_attribute("latency_ms", str(total_latency))
+                span.set_attribute("retry_count", str(retry_count))
             
-            # FIX #1: End span with error status
             self.audit_logger.end_span(span, error=exc)
             
             return self.on_error(exc, shared)
@@ -315,21 +393,17 @@ class AsyncAuditMixin:
             raise
     
     async def _audit_run_async(self, shared):
-        """
-        Common audited run logic for async nodes.
-        
-        CRITICAL: This method is called by AsyncParallelBatchNode which uses
-        asyncio.gather() to run multiple instances concurrently. The manual
-        span management here prevents context bleeding between concurrent tasks.
-        """
+        """Common audited run logic for async nodes with span hierarchy"""
         self.audit_logger.log_node_start(self.name, self.__class__.__name__, self.params)
         total_start = time.time()
         
-        # FIX #1: Manual span creation (CRITICAL for async safety)
-        # Each concurrent task gets its own span that doesn't pollute
-        # the contextvars of other tasks
+        # Get parent span from shared context
+        parent_span = shared.get("parent_span")
+        
+        # Create child span with parent relationship
         span = self.audit_logger.create_span(
-            f"async_node.{self.name}",
+            f"node.{self.name}",
+            parent=parent_span,
             node_name=self.name,
             node_type=self.__class__.__name__
         )
@@ -346,7 +420,7 @@ class AsyncAuditMixin:
             
             total_latency = (time.time() - total_start) * 1000
             
-            # FIX #3: Track input AND output batch sizes
+            # Track batch sizes
             input_size = len(prep_result) if hasattr(prep_result, '__len__') else None
             output_size = len(exec_result) if hasattr(exec_result, '__len__') else None
             
@@ -356,7 +430,6 @@ class AsyncAuditMixin:
                 "output_batch_size": output_size
             }
             
-            # Log success
             self.audit_logger.log_node_success(
                 self.name,
                 self.__class__.__name__,
@@ -365,16 +438,14 @@ class AsyncAuditMixin:
                 phase_latencies_with_sizes
             )
             
-            # Set span attributes
             if span:
-                span.set_attribute("latency_ms", total_latency)
+                span.set_attribute("latency_ms", str(total_latency))
                 span.set_attribute("result_type", type(post_result).__name__)
                 if input_size is not None:
-                    span.set_attribute("input_batch_size", input_size)
+                    span.set_attribute("input_batch_size", str(input_size))
                 if output_size is not None:
-                    span.set_attribute("output_batch_size", output_size)
+                    span.set_attribute("output_batch_size", str(output_size))
             
-            # FIX #1: Manually end span
             self.audit_logger.end_span(span)
             
             return post_result
@@ -383,7 +454,6 @@ class AsyncAuditMixin:
             total_latency = (time.time() - total_start) * 1000
             retry_count = getattr(self, 'cur_retry', 0)
             
-            # Log error
             self.audit_logger.log_node_error(
                 self.name,
                 self.__class__.__name__,
@@ -392,19 +462,17 @@ class AsyncAuditMixin:
                 total_latency
             )
             
-            # Set span error attributes
             if span:
-                span.set_attribute("latency_ms", total_latency)
-                span.set_attribute("retry_count", retry_count)
+                span.set_attribute("latency_ms", str(total_latency))
+                span.set_attribute("retry_count", str(retry_count))
             
-            # FIX #1: End span with error
             self.audit_logger.end_span(span, error=exc)
             
             return await self.on_error_async(exc, shared)
 
 
 # ======================================================================
-# AUDITED SYNC CLASSES
+# AUDITED SYNC CLASSES (UNCHANGED)
 # ======================================================================
 
 class AuditedNode(AuditMixin, Node):
@@ -438,7 +506,7 @@ class AuditedBatchNode(AuditMixin, BatchNode):
 
 
 class AuditedFlow(Flow):
-    """Flow with audit logging and optional OpenTelemetry tracing"""
+    """Flow with audit logging and hierarchical span support"""
     
     def __init__(self, name=None, audit_logger: AuditLogger = None, start=None):
         super().__init__(name, start)
@@ -458,12 +526,15 @@ class AuditedFlow(Flow):
         self.audit_logger.log_flow_start(self.name, self.__class__.__name__)
         total_start = time.time()
         
-        # FIX #1: Manual span creation
+        # Create root span for the flow
         span = self.audit_logger.create_span(
             f"flow.{self.name}",
             flow_name=self.name,
             flow_type=self.__class__.__name__
         )
+        
+        # Store parent span in shared context for child nodes
+        shared["parent_span"] = span
         
         try:
             self.before_run(shared)
@@ -476,7 +547,6 @@ class AuditedFlow(Flow):
             
             total_latency = (time.time() - total_start) * 1000
             
-            # Log flow end
             self.audit_logger.log_flow_end(
                 self.name,
                 self.__class__.__name__,
@@ -484,11 +554,9 @@ class AuditedFlow(Flow):
                 total_latency
             )
             
-            # Set span attributes
             if span:
-                span.set_attribute("total_latency_ms", total_latency)
+                span.set_attribute("total_latency_ms", str(total_latency))
             
-            # FIX #1: Manually end span
             self.audit_logger.end_span(span)
             
             return post_result
@@ -496,7 +564,6 @@ class AuditedFlow(Flow):
         except Exception as exc:
             total_latency = (time.time() - total_start) * 1000
             
-            # Log flow error
             self.audit_logger.log_node_error(
                 self.name,
                 self.__class__.__name__,
@@ -506,9 +573,8 @@ class AuditedFlow(Flow):
             )
             
             if span:
-                span.set_attribute("total_latency_ms", total_latency)
+                span.set_attribute("total_latency_ms", str(total_latency))
             
-            # FIX #1: End span with error
             self.audit_logger.end_span(span, error=exc)
             
             return self.on_error(exc, shared)
@@ -549,13 +615,7 @@ class AuditedAsyncBatchNode(AsyncAuditMixin, AsyncBatchNode):
 
 
 class AuditedAsyncParallelBatchNode(AsyncAuditMixin, AsyncParallelBatchNode):
-    """
-    AsyncParallelBatchNode with audit logging and optional OpenTelemetry tracing.
-    
-    IMPORTANT: This class uses asyncio.gather() to process items concurrently.
-    The manual span management in AsyncAuditMixin is CRITICAL to prevent
-    span context bleeding between concurrent tasks.
-    """
+    """AsyncParallelBatchNode with audit logging and optional OpenTelemetry tracing"""
     
     def __init__(self, name=None, audit_logger: AuditLogger = None, max_retries=1, wait=0):
         super().__init__(name, max_retries, wait)
@@ -570,7 +630,7 @@ class AuditedAsyncParallelBatchNode(AsyncAuditMixin, AsyncParallelBatchNode):
 
 
 class AuditedAsyncFlow(AsyncFlow):
-    """AsyncFlow with audit logging and optional OpenTelemetry tracing"""
+    """AsyncFlow with audit logging and hierarchical span support"""
     
     def __init__(self, name=None, audit_logger: AuditLogger = None, start=None):
         super().__init__(name, start)
@@ -590,12 +650,15 @@ class AuditedAsyncFlow(AsyncFlow):
         self.audit_logger.log_flow_start(self.name, self.__class__.__name__)
         total_start = time.time()
         
-        # FIX #1: Manual span creation
+        # Create root span for the flow
         span = self.audit_logger.create_span(
-            f"async_flow.{self.name}",
+            f"flow.{self.name}",
             flow_name=self.name,
             flow_type=self.__class__.__name__
         )
+        
+        # Store parent span in shared context for child nodes
+        shared["parent_span"] = span
         
         try:
             await self.before_run_async(shared)
@@ -608,7 +671,6 @@ class AuditedAsyncFlow(AsyncFlow):
             
             total_latency = (time.time() - total_start) * 1000
             
-            # Log flow end
             self.audit_logger.log_flow_end(
                 self.name,
                 self.__class__.__name__,
@@ -616,11 +678,9 @@ class AuditedAsyncFlow(AsyncFlow):
                 total_latency
             )
             
-            # Set span attributes
             if span:
-                span.set_attribute("total_latency_ms", total_latency)
+                span.set_attribute("total_latency_ms", str(total_latency))
             
-            # FIX #1: Manually end span
             self.audit_logger.end_span(span)
             
             return post_result
@@ -628,7 +688,6 @@ class AuditedAsyncFlow(AsyncFlow):
         except Exception as exc:
             total_latency = (time.time() - total_start) * 1000
             
-            # Log flow error
             self.audit_logger.log_node_error(
                 self.name,
                 self.__class__.__name__,
@@ -638,9 +697,8 @@ class AuditedAsyncFlow(AsyncFlow):
             )
             
             if span:
-                span.set_attribute("total_latency_ms", total_latency)
+                span.set_attribute("total_latency_ms", str(total_latency))
             
-            # FIX #1: End span with error
             self.audit_logger.end_span(span, error=exc)
             
             return await self.on_error_async(exc, shared)
