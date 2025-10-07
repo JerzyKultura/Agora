@@ -225,20 +225,28 @@ class AuditLogger:
         span_id = id(span)
         parent_id = self.span_hierarchy.get(span_id)
         
+        # Get parent span ID from hierarchy
+        parent_span_id = None
+        if parent_id:
+            # Look up parent in completed spans
+            for completed in self.completed_spans:
+                if completed.get("_internal_id") == parent_id:
+                    parent_span_id = completed.get("span_id")
+                    break
+        
         # Store completed span info
         span_info = {
             "name": span.name if hasattr(span, 'name') else "unknown",
             "trace_id": format(span_context.trace_id, '032x') if span_context else None,
             "span_id": format(span_context.span_id, '016x') if span_context else None,
-            "parent_span_id": format(trace.get_span_in_context(
-                trace.set_span_in_context(span)
-            ).get_span_context().span_id, '016x') if parent_id else None,
+            "parent_span_id": parent_span_id,
             "duration_ms": round(duration_ms, 2),
             "attributes": {},
             "status": "error" if error else "ok",
             "start_time": datetime.fromtimestamp(
                 getattr(span, '_agora_start_time', time.time())
-            ).isoformat()
+            ).isoformat(),
+            "_internal_id": span_id  # For parent lookup
         }
         
         # Extract attributes from span
