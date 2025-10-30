@@ -23,7 +23,14 @@ class BaseNode:
         return node
     
     def prep(self, shared): pass
-    def exec(self, prep_res): pass
+    
+    def exec(self, prep_res):
+        """Override this method in subclasses to implement node logic."""
+        raise NotImplementedError(
+            f"{self.__class__.__name__}.exec() must be overridden. "
+            f"BaseNode.exec() is abstract and cannot be used directly."
+        )
+    
     def post(self, shared, prep_res, exec_res): pass
 
     def before_run(self, shared): pass
@@ -35,7 +42,16 @@ class BaseNode:
     
     def _exec(self, prep_res):
         try:
-            return self.exec(prep_res)
+            result = self.exec(prep_res)
+            # Check if exec() was not overridden (returns None from base implementation)
+            # We check if the method is the exact same object as BaseNode.exec
+            if result is None and type(self).exec is BaseNode.exec:
+                raise NotImplementedError(
+                    f"{self.__class__.__name__}.exec() returned None. "
+                    f"Did you forget to override exec()? "
+                    f"All nodes must implement exec() method."
+                )
+            return result
         except Exception as e:
             raise
     
@@ -79,7 +95,16 @@ class Node(BaseNode):
     
     def _exec(self, prep_res):
         for self.cur_retry in range(self.max_retries):
-            try: return self.exec(prep_res)
+            try: 
+                result = self.exec(prep_res)
+                # Same check as BaseNode, but after successful execution
+                if result is None and type(self).exec is BaseNode.exec:
+                    raise NotImplementedError(
+                        f"{self.__class__.__name__}.exec() returned None. "
+                        f"Did you forget to override exec()? "
+                        f"All nodes must implement exec() method."
+                    )
+                return result
             except Exception as e:
                 if self.cur_retry == self.max_retries - 1: 
                     return self.exec_fallback(prep_res, e)
@@ -95,6 +120,10 @@ class Flow(BaseNode):
     def __init__(self, name=None, start=None):
         super().__init__(name)
         self.start_node = start
+    
+    # Flow doesn't need exec() override check since it uses _orch() instead
+    def exec(self, prep_res): 
+        pass
     
     def start(self, start): 
         self.start_node = start
@@ -178,7 +207,14 @@ class AsyncNode:
     
     # Async methods
     async def prep_async(self, shared): pass
-    async def exec_async(self, prep_res): pass
+    
+    async def exec_async(self, prep_res):
+        """Override this method in subclasses to implement async node logic."""
+        raise NotImplementedError(
+            f"{self.__class__.__name__}.exec_async() must be overridden. "
+            f"AsyncNode.exec_async() is abstract and cannot be used directly."
+        )
+    
     async def post_async(self, shared, prep_res, exec_res): pass
     async def before_run_async(self, shared): pass
     async def after_run_async(self, shared): pass
@@ -187,7 +223,16 @@ class AsyncNode:
     
     async def _exec_async(self, prep_res):
         for self.cur_retry in range(self.max_retries):
-            try: return await self.exec_async(prep_res)
+            try: 
+                result = await self.exec_async(prep_res)
+                # Check if exec_async() was not overridden
+                if result is None and type(self).exec_async is AsyncNode.exec_async:
+                    raise NotImplementedError(
+                        f"{self.__class__.__name__}.exec_async() returned None. "
+                        f"Did you forget to override exec_async()? "
+                        f"All async nodes must implement exec_async() method."
+                    )
+                return result
             except Exception as e:
                 if self.cur_retry == self.max_retries - 1:
                     return await self.exec_fallback_async(prep_res, e)
@@ -234,7 +279,15 @@ class AsyncParallelBatchNode(AsyncNode):
         
         async def process_item(item):
             for retry in range(self.max_retries):
-                try: return await self.exec_async(item)
+                try: 
+                    result = await self.exec_async(item)
+                    # Check for unimplemented exec_async
+                    if result is None and type(self).exec_async is AsyncNode.exec_async:
+                        raise NotImplementedError(
+                            f"{self.__class__.__name__}.exec_async() returned None. "
+                            f"Did you forget to override exec_async()?"
+                        )
+                    return result
                 except Exception as e:
                     if retry == self.max_retries - 1:
                         return await self.exec_fallback_async(item, e)
