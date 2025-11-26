@@ -1,0 +1,24 @@
+{
+  "name": "agora-cloud-platform",
+  "version": "1.0.0",
+  "description": "Agora Cloud Workflow Platform with React Frontend and Supabase Backend",
+  "type": "module",
+  "scripts": {
+    "dev": "npm run dev --prefix platform/frontend",
+    "build": "npm install --prefix platform/frontend && npm run build --prefix platform/frontend && rm -rf dist && cp -r platform/frontend/dist .",
+    "preview": "npm run preview --prefix platform/frontend",
+    "install:frontend": "npm install --prefix platform/frontend"
+  },
+  "keywords": [
+    "agora",
+    "workflow",
+    "supabase",
+    "react",
+    "typescript"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
