@@ -15,6 +15,33 @@ async function getCurrentUserOrganization() {
 }
 
 export const api = {
+  getWorkflows: async (projectId: string) => {
+    const { data, error } = await supabase
+      .from('workflows')
+      .select('*')
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: false })
+
+    if (error) throw error
+    return data || []
+  },
+
+  getExecutions: async (workflowId: string, status?: string) => {
+    let query = supabase
+      .from('executions')
+      .select('*')
+      .eq('workflow_id', workflowId)
+
+    if (status) {
+      query = query.eq('status', status)
+    }
+
+    const { data, error } = await query.order('started_at', { ascending: false })
+
+    if (error) throw error
+    return data || []
+  },
+
   auth: {
     signUp: async (email: string, password: string, _organizationName: string) => {
       const { data: authData, error: authError } = await supabase.auth.signUp({

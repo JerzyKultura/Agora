@@ -20,19 +20,24 @@ from agora.agora_tracer import (
 )
 
 API_KEY = os.environ.get("AGORA_API_KEY", "")
+PLATFORM_URL = os.environ.get("AGORA_PLATFORM_URL", "http://localhost:8000")
 
 if not API_KEY:
     print("⚠️  No AGORA_API_KEY found!")
     print("Set it with: export AGORA_API_KEY='agora_xxxxx'")
     print("\nRunning in local mode (no cloud sync)...\n")
 else:
-    # Set Traceloop API key (Traceloop SDK expects this env var)
+    # Set Traceloop and platform environment variables
     os.environ["TRACELOOP_API_KEY"] = API_KEY
+    os.environ["AGORA_PLATFORM_URL"] = PLATFORM_URL
+    print(f"✅ Cloud upload enabled to {PLATFORM_URL}\n")
 
 init_traceloop(
     app_name="demo_workflow",
     export_to_console=True,
-    export_to_file="demo_traces.jsonl"
+    export_to_file="demo_traces.jsonl",
+    enable_cloud_upload=True,
+    project_name="Demo Project"
 )
 
 

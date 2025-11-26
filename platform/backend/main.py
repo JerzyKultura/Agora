@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
 
-from routers import auth, projects, workflows, executions
+from routers import auth, projects, workflows, executions, telemetry
 
 load_dotenv()
 
@@ -25,6 +25,7 @@ app.include_router(auth.router)
 app.include_router(projects.router)
 app.include_router(workflows.router)
 app.include_router(executions.router)
+app.include_router(telemetry.router)
 
 @app.get("/")
 async def root():

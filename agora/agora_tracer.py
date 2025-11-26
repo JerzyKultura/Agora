@@ -21,26 +21,39 @@ from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProces
 from traceloop.sdk import Traceloop
 from agora import AsyncNode, AsyncFlow, AsyncBatchNode, AsyncParallelBatchNode
 import os, time, asyncio, inspect, functools
+from datetime import datetime
+
+try:
+    from agora.cloud_uploader import CloudUploader
+    CLOUD_UPLOADER_AVAILABLE = True
+except ImportError:
+    CLOUD_UPLOADER_AVAILABLE = False
+    CloudUploader = None
 
 _initialized = False
 tracer = None
+cloud_uploader = None
 
 def init_traceloop(
     app_name="agora_app",
     export_to_console=True,
     export_to_file=None,
-    disable_content_logging=True
+    disable_content_logging=True,
+    enable_cloud_upload=True,
+    project_name=None
 ):
     """
     Initialize Traceloop for Agora telemetry.
-    
+
     Args:
         app_name: Name of your application
         export_to_console: Print spans to console (default: True)
         export_to_file: Path to JSONL file for export (default: None)
         disable_content_logging: Don't log prompt/response content (default: True)
+        enable_cloud_upload: Upload telemetry to cloud platform (default: True)
+        project_name: Project name for cloud platform (default: app_name)
     """
-    global _initialized, tracer
+    global _initialized, tracer, cloud_uploader
 
     if _initialized:
         print("⚠️  Traceloop already initialized")
@@ -90,6 +103,16 @@ def init_traceloop(
     )
 
     tracer = trace.get_tracer("agora_tracer")
+
+    if enable_cloud_upload and CLOUD_UPLOADER_AVAILABLE:
+        cloud_uploader = CloudUploader(
+            project_name=project_name or app_name
+        )
+        if cloud_uploader.enabled:
+            print(f"✅ Cloud upload enabled for project: {project_name or app_name}")
+    elif enable_cloud_upload and not CLOUD_UPLOADER_AVAILABLE:
+        print("⚠️  Cloud upload requested but not available (install httpx)")
+
     _initialized = True
     print(f"✅ Traceloop initialized: {app_name}")
 
@@ -237,29 +260,68 @@ class TracedAsyncNode(AsyncNode):
                     await asyncio.sleep(self.wait)
 
     async def _run_async(self, shared):
+        global cloud_uploader
+
         with trace.get_tracer("agora_tracer").start_as_current_span(f"{self.name}.node") as span:
             span.set_attribute("agora.node", self.name)
             span.set_attribute("agora.kind", "node")
             node_start = time.time()
+            started_at = datetime.utcnow()
             await self.before_run_async(shared)
             try:
                 prep_res = await self._traced_prep(shared)
                 exec_res = await self._exec_async(prep_res)
                 post_res = await self._traced_post(shared, prep_res, exec_res)
                 await self.after_run_async(shared)
-                span.set_attribute("total_duration_ms", round((time.time() - node_start) * 1000, 2))
+                completed_at = datetime.utcnow()
+                total_duration = round((time.time() - node_start) * 1000, 2)
+                span.set_attribute("total_duration_ms", total_duration)
+
+                if cloud_uploader and cloud_uploader.enabled and cloud_uploader.execution_id:
+                    cloud_uploader.add_node_execution(
+                        node_name=self.name,
+                        node_type="async_node",
+                        status="success",
+                        started_at=started_at,
+                        completed_at=completed_at,
+                        exec_duration_ms=int(total_duration)
+                    )
+
                 return post_res
             except Exception as exc:
                 span.record_exception(exc)
+                completed_at = datetime.utcnow()
+
+                if cloud_uploader and cloud_uploader.enabled and cloud_uploader.execution_id:
+                    cloud_uploader.add_node_execution(
+                        node_name=self.name,
+                        node_type="async_node",
+                        status="error",
+                        started_at=started_at,
+                        completed_at=completed_at,
+                        error_message=str(exc)
+                    )
+
                 return await self.on_error_async(exc, shared)
 
 
 class TracedAsyncFlow(AsyncFlow):
-    """AsyncFlow with automatic telemetry"""
+    """AsyncFlow with automatic telemetry and cloud upload"""
 
     async def _run_async(self, shared):
+        global cloud_uploader
+
+        execution_id = None
+        if cloud_uploader and cloud_uploader.enabled:
+            execution_id = await cloud_uploader.start_execution(
+                workflow_name=self.name,
+                input_data=shared.copy() if isinstance(shared, dict) else {}
+            )
+
         with trace.get_tracer("agora_tracer").start_as_current_span(f"{self.name}.flow") as span:
             span.set_attribute("agora.flow", self.name)
+            if execution_id:
+                span.set_attribute("execution_id", str(execution_id))
             flow_start = time.time()
             await self.before_run_async(shared)
             try:
@@ -268,9 +330,23 @@ class TracedAsyncFlow(AsyncFlow):
                 post_res = await self.post_async(shared, prep_res, orch_res)
                 await self.after_run_async(shared)
                 span.set_attribute("total_duration_ms", round((time.time() - flow_start) * 1000, 2))
+
+                if cloud_uploader and cloud_uploader.enabled:
+                    await cloud_uploader.complete_execution(
+                        status="success",
+                        output_data=shared.copy() if isinstance(shared, dict) else {}
+                    )
+
                 return post_res
             except Exception as exc:
                 span.record_exception(exc)
+
+                if cloud_uploader and cloud_uploader.enabled:
+                    await cloud_uploader.complete_execution(
+                        status="error",
+                        error_message=str(exc)
+                    )
+
                 return await self.on_error_async(exc, shared)
 
 
