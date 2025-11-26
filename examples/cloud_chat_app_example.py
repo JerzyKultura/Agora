@@ -15,7 +15,7 @@ from agora.cloud_client import CloudAuditLogger
 # ============================================================================
 
 API_KEY = "agora_key_hraf8PI8-sKCmD_heUmOaOg00-OYwLNKrwGX4amN6B8"  # Your Agora API key
-os.environ["OPENAI_API_KEY"] = "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" \
+os.environ["OPENAI_API_KEY"] = "" \
 ""  # Your OpenAI key
 
 client = OpenAI()

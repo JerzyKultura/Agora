@@ -11,7 +11,7 @@ from agora.cloud_client import CloudAuditLogger
 # ============================================================================
 # STEP 1: Get Your API Key from the Platform
 # ============================================================================
-API_KEY = "aagora_key_hraf8PI8-sKCmD_heUmOaOg00-OYwLNKrwGX4amN6B8"
+API_KEY = ""
 
 # ============================================================================
 # STEP 2: Define Your Workflow with TracedAsyncNode (captures spans!)

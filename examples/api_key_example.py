@@ -22,7 +22,7 @@ from agora.cloud_client import CloudAuditLogger
 # 3. Click "Generate New API Key"
 # 4. Copy the key and paste it here:
 
-API_KEY = "agora_key_hraf8PI8-sKCmD_heUmOaOg00-OYwLNKrwGX4amN6B8"
+API_KEY = ""
 
 # ============================================================================
 # STEP 2: Define Your Workflow (Normal Agora Code!)
