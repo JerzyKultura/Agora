@@ -22,6 +22,7 @@ Instructions:
 """
 !pip install --quiet openai
 !pip install --quiet git+https://github.com/JerzyKultura/Agora.git
+!pip install --quiet traceloop-sdk supabase
 """
 
 # =============================================================================
