@@ -10,6 +10,7 @@ import Projects from './pages/Projects'
 import ProjectDetail from './pages/ProjectDetail'
 import Monitoring from './pages/Monitoring'
 import ExecutionDetail from './pages/ExecutionDetail'
+import Settings from './pages/Settings'
 
 function App() {
   const [user, setUser] = useState<User | null>(null)
@@ -47,6 +48,7 @@ function App() {
           <Route path="projects/:projectId" element={<ProjectDetail />} />
           <Route path="monitoring/:projectId" element={<Monitoring />} />
           <Route path="executions/:executionId" element={<ExecutionDetail />} />
+          <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>
     </BrowserRouter>
