@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Optional
 from uuid import UUID, uuid4
 from datetime import datetime, timedelta
-from database import get_supabase
+from database import get_supabase_admin
 from supabase import Client
 from models import APIKeyCreate, APIKeyResponse
 from routers.projects import get_current_user
@@ -37,20 +37,26 @@ def generate_api_key() -> tuple[str, str, str]:
 async def create_api_key(
     key_data: APIKeyCreate,
     user = Depends(get_current_user),
-    supabase: Client = Depends(get_supabase)
+    supabase: Client = Depends(get_supabase_admin)
 ):
     """
     Create a new API key for the user's organization.
     The full key is only returned once - user must save it!
     """
     try:
+        print(f"DEBUG: User object: {user}")
+        print(f"DEBUG: User.user: {user.user if hasattr(user, 'user') else 'NO USER ATTR'}")
+        print(f"DEBUG: User.user.id: {user.user.id if hasattr(user, 'user') else 'NO USER ATTR'}")
         # Get user's organization
         user_org_response = supabase.table("user_organizations")\
             .select("organization_id")\
             .eq("user_id", user.user.id)\
             .execute()
 
+        print(f"DEBUG: user_org_response.data = {user_org_response.data}")
+        
         if not user_org_response.data:
+            print(f"DEBUG: No organization found for user {user.user.id}")
             raise HTTPException(status_code=403, detail="User not part of any organization")
 
         org_id = user_org_response.data[0]["organization_id"]
@@ -95,10 +101,13 @@ async def create_api_key(
 @router.get("/", response_model=List[APIKeyResponse])
 async def list_api_keys(
     user = Depends(get_current_user),
-    supabase: Client = Depends(get_supabase)
+    supabase: Client = Depends(get_supabase_admin)
 ):
     """List all API keys for the user's organization."""
     try:
+        print(f"DEBUG: User object: {user}")
+        print(f"DEBUG: User.user: {user.user if hasattr(user, 'user') else 'NO USER ATTR'}")
+        print(f"DEBUG: User.user.id: {user.user.id if hasattr(user, 'user') else 'NO USER ATTR'}")
         # Get user's organization
         user_org_response = supabase.table("user_organizations")\
             .select("organization_id")\
@@ -127,17 +136,23 @@ async def list_api_keys(
 async def revoke_api_key(
     key_id: UUID,
     user = Depends(get_current_user),
-    supabase: Client = Depends(get_supabase)
+    supabase: Client = Depends(get_supabase_admin)
 ):
     """Revoke an API key."""
     try:
+        print(f"DEBUG: User object: {user}")
+        print(f"DEBUG: User.user: {user.user if hasattr(user, 'user') else 'NO USER ATTR'}")
+        print(f"DEBUG: User.user.id: {user.user.id if hasattr(user, 'user') else 'NO USER ATTR'}")
         # Get user's organization
         user_org_response = supabase.table("user_organizations")\
             .select("organization_id")\
             .eq("user_id", user.user.id)\
             .execute()
 
+        print(f"DEBUG: user_org_response.data = {user_org_response.data}")
+        
         if not user_org_response.data:
+            print(f"DEBUG: No organization found for user {user.user.id}")
             raise HTTPException(status_code=403, detail="User not part of any organization")
 
         org_id = user_org_response.data[0]["organization_id"]

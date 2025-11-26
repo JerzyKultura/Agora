@@ -2,72 +2,64 @@
 Cloud client for Agora Platform integration.
 
 This module provides CloudAuditLogger that extends AuditLogger to automatically
-send telemetry data to the Agora Cloud Platform.
+send telemetry data to the Agora Cloud Platform using API keys.
 """
 
 import httpx
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from .telemetry import AuditLogger
-from uuid import UUID
 
 
 class CloudAuditLogger(AuditLogger):
     """
     Audit logger that sends telemetry to Agora Cloud Platform.
 
-    Usage:
+    Simple Usage:
         logger = CloudAuditLogger(
-            session_id="my-session",
-            api_url="http://localhost:8000",
-            access_token="your-jwt-token",
-            workflow_id="uuid-of-workflow"
+            api_key="agora_key_abc123xyz",
+            workflow_name="MyWorkflow"
         )
 
-        # Use like normal AuditLogger
+        # Use with your Agora nodes/flows
         node = AuditedNode("processor", logger)
         flow = AuditedFlow("MyFlow", logger)
-        flow.start(node)
         result = flow.run(shared)
 
-        # Automatically uploads on completion
+        # Automatically uploads on completion!
         logger.upload()
     """
 
     def __init__(
         self,
-        session_id: str,
-        api_url: str,
-        access_token: str,
-        workflow_id: str,
+        api_key: str,
+        workflow_name: str,
+        api_url: str = "http://localhost:8000",
+        session_id: Optional[str] = None,
         auto_upload: bool = True
     ):
         """
         Initialize CloudAuditLogger.
 
         Args:
-            session_id: Unique identifier for this execution session
-            api_url: Base URL of Agora Platform API (e.g., http://localhost:8000)
-            access_token: JWT access token for authentication
-            workflow_id: UUID of the workflow in the platform
+            api_key: Your Agora platform API key (from Settings → API Keys)
+            workflow_name: Name of your workflow (auto-created if doesn't exist)
+            api_url: Base URL of Agora Platform API (default: http://localhost:8000)
+            session_id: Optional unique identifier for this execution session
             auto_upload: If True, automatically upload on flow completion
         """
+        session_id = session_id or f"session-{int(datetime.now().timestamp())}"
         super().__init__(session_id)
+        
+        self.api_key = api_key
+        self.workflow_name = workflow_name
         self.api_url = api_url.rstrip("/")
-        self.access_token = access_token
-        self.workflow_id = workflow_id
         self.auto_upload = auto_upload
+        
         self.execution_start_time = datetime.now()
         self.execution_end_time: Optional[datetime] = None
         self.execution_status = "running"
         self.execution_error: Optional[str] = None
-
-        # Store node ID mapping (node_name -> node_id from platform)
-        self.node_id_map: Dict[str, str] = {}
-
-    def set_node_id_mapping(self, node_name: str, node_id: str):
-        """Map node name to platform node ID."""
-        self.node_id_map[node_name] = node_id
 
     def mark_complete(self, status: str = "success", error: Optional[str] = None):
         """Mark execution as complete."""
@@ -119,8 +111,8 @@ class CloudAuditLogger(AuditLogger):
             # Extract phase latencies
             phase_latencies = (success_event or error_event or {}).get("phase_latencies", {})
 
-            # Get node_id from mapping or generate placeholder
-            node_id = self.node_id_map.get(node_name, "00000000-0000-0000-0000-000000000000")
+            # Use placeholder UUID (backend will map to actual node_id)
+            node_id = "00000000-0000-0000-0000-000000000000"
 
             node_exec = {
                 "node_id": node_id,
@@ -129,9 +121,9 @@ class CloudAuditLogger(AuditLogger):
                 "status": status,
                 "started_at": start_event.get("timestamp"),
                 "completed_at": end_event.get("timestamp") if end_event else None,
-                "prep_duration_ms": phase_latencies.get("prep"),
-                "exec_duration_ms": phase_latencies.get("exec"),
-                "post_duration_ms": phase_latencies.get("post"),
+                "prep_duration_ms": int(phase_latencies.get("prep") * 1000) if phase_latencies.get("prep") else None,
+                "exec_duration_ms": int(phase_latencies.get("exec") * 1000) if phase_latencies.get("exec") else None,
+                "post_duration_ms": int(phase_latencies.get("post") * 1000) if phase_latencies.get("post") else None,
                 "error_message": error_event.get("error_message") if error_event else None,
                 "retry_count": error_event.get("retry_count", 0) if error_event else 0
             }
@@ -191,8 +183,10 @@ class CloudAuditLogger(AuditLogger):
                 duration_ms = int(delta.total_seconds() * 1000)
 
             # Build telemetry payload
+            # NOTE: workflow_id is actually the workflow NAME
+            # Backend will auto-create if it doesn't exist!
             payload = {
-                "workflow_id": self.workflow_id,
+                "workflow_id": self.workflow_name,  # ← Backend handles this!
                 "session_id": self.session_id,
                 "status": self.execution_status,
                 "started_at": self.execution_start_time.isoformat(),
@@ -205,9 +199,9 @@ class CloudAuditLogger(AuditLogger):
                 "shared_state_snapshots": []  # TODO: Implement state snapshot tracking
             }
 
-            # Send to platform
+            # Send to platform with API key authentication
             headers = {
-                "Authorization": f"Bearer {self.access_token}",
+                "X-API-Key": self.api_key,  # ← Simple API key auth!
                 "Content-Type": "application/json"
             }
 
@@ -222,12 +216,23 @@ class CloudAuditLogger(AuditLogger):
                 result = response.json()
                 execution_id = result.get("id")
 
-                print(f"✅ Telemetry uploaded successfully. Execution ID: {execution_id}")
+                print(f"✅ Telemetry uploaded successfully!")
+                print(f"   Execution ID: {execution_id}")
+                print(f"   Workflow: {self.workflow_name}")
+                print(f"   View at: {self.api_url.replace(':8000', ':5173')}/executions/{execution_id}")
+                
                 return execution_id
 
         except httpx.HTTPError as e:
             print(f"❌ Failed to upload telemetry: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_detail = e.response.json()
+                    print(f"   Error details: {error_detail}")
+                except:
+                    print(f"   Response: {e.response.text}")
             return None
         except Exception as e:
             print(f"❌ Unexpected error during upload: {e}")
             return None
+        

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from datetime import datetime
 from uuid import UUID
 
@@ -186,7 +186,7 @@ class SharedStateSnapshotIngest(BaseModel):
     node_name: Optional[str] = None
 
 class TelemetryIngest(BaseModel):
-    workflow_id: UUID
+    workflow_id: Union[UUID, str]  # Accept UUID or workflow name
     session_id: str
     status: str = "running"
     started_at: datetime

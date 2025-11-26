@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, Query, Header
 from typing import List, Optional
 from uuid import UUID, uuid4
-from database import get_supabase
+from database import get_supabase_admin
 from supabase import Client
 from models import ExecutionResponse, NodeExecutionResponse, TelemetryIngest
 from routers.projects import get_current_user
@@ -14,7 +14,7 @@ router = APIRouter(prefix="/executions", tags=["Executions"])
 
 async def get_org_from_api_key(
     x_api_key: Optional[str] = Header(None),
-    supabase: Client = Depends(get_supabase)
+    supabase: Client = Depends(get_supabase_admin)
 ) -> str:
     """Authenticate via API key and return organization ID."""
     if not x_api_key:
@@ -38,7 +38,7 @@ async def list_executions(
     limit: int = Query(50, le=100),
     offset: int = 0,
     user = Depends(get_current_user),
-    supabase: Client = Depends(get_supabase)
+    supabase: Client = Depends(get_supabase_admin)
 ):
     try:
         query = supabase.table("executions").select("*")
@@ -58,7 +58,7 @@ async def list_executions(
 
 
 @router.get("/{execution_id}", response_model=ExecutionResponse)
-async def get_execution(execution_id: UUID, user = Depends(get_current_user), supabase: Client = Depends(get_supabase)):
+async def get_execution(execution_id: UUID, user = Depends(get_current_user), supabase: Client = Depends(get_supabase_admin)):
     try:
         response = supabase.table("executions")\
             .select("*")\
@@ -76,7 +76,7 @@ async def get_execution(execution_id: UUID, user = Depends(get_current_user), su
 
 
 @router.get("/{execution_id}/nodes", response_model=List[NodeExecutionResponse])
-async def get_execution_nodes(execution_id: UUID, user = Depends(get_current_user), supabase: Client = Depends(get_supabase)):
+async def get_execution_nodes(execution_id: UUID, user = Depends(get_current_user), supabase: Client = Depends(get_supabase_admin)):
     try:
         response = supabase.table("node_executions")\
             .select("*")\
@@ -90,7 +90,7 @@ async def get_execution_nodes(execution_id: UUID, user = Depends(get_current_use
 
 
 @router.get("/{execution_id}/timeline")
-async def get_execution_timeline(execution_id: UUID, user = Depends(get_current_user), supabase: Client = Depends(get_supabase)):
+async def get_execution_timeline(execution_id: UUID, user = Depends(get_current_user), supabase: Client = Depends(get_supabase_admin)):
     try:
         execution_response = supabase.table("executions")\
             .select("*")\
@@ -134,7 +134,7 @@ async def get_execution_timeline(execution_id: UUID, user = Depends(get_current_
 
 
 @router.get("/{execution_id}/shared-state")
-async def get_shared_state_evolution(execution_id: UUID, user = Depends(get_current_user), supabase: Client = Depends(get_supabase)):
+async def get_shared_state_evolution(execution_id: UUID, user = Depends(get_current_user), supabase: Client = Depends(get_supabase_admin)):
     try:
         response = supabase.table("shared_state_snapshots")\
             .select("*")\
@@ -148,7 +148,7 @@ async def get_shared_state_evolution(execution_id: UUID, user = Depends(get_curr
 
 
 @router.get("/{execution_id}/telemetry-spans")
-async def get_telemetry_spans(execution_id: UUID, user = Depends(get_current_user), supabase: Client = Depends(get_supabase)):
+async def get_telemetry_spans(execution_id: UUID, user = Depends(get_current_user), supabase: Client = Depends(get_supabase_admin)):
     try:
         response = supabase.table("telemetry_spans")\
             .select("*")\
@@ -162,7 +162,7 @@ async def get_telemetry_spans(execution_id: UUID, user = Depends(get_current_use
 
 
 @router.get("/{execution_id}/telemetry-events")
-async def get_telemetry_events(execution_id: UUID, user = Depends(get_current_user), supabase: Client = Depends(get_supabase)):
+async def get_telemetry_events(execution_id: UUID, user = Depends(get_current_user), supabase: Client = Depends(get_supabase_admin)):
     try:
         response = supabase.table("telemetry_events")\
             .select("*")\
@@ -183,7 +183,7 @@ async def get_telemetry_events(execution_id: UUID, user = Depends(get_current_us
 async def ingest_telemetry(
     telemetry: TelemetryIngest,
     org_id: str = Depends(get_org_from_api_key),
-    supabase: Client = Depends(get_supabase)
+    supabase: Client = Depends(get_supabase_admin)
 ):
     """
     Ingest telemetry data from Agora framework execution.

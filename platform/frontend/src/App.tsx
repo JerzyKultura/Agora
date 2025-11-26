@@ -2,7 +2,6 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { supabase } from './lib/supabase'
 import type { User } from '@supabase/supabase-js'
-
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
@@ -10,6 +9,8 @@ import Projects from './pages/Projects'
 import ProjectDetail from './pages/ProjectDetail'
 import Monitoring from './pages/Monitoring'
 import ExecutionDetail from './pages/ExecutionDetail'
+import APIKeys from './pages/APIKeys'
+import Executions from './pages/Executions'
 
 function App() {
   const [user, setUser] = useState<User | null>(null)
@@ -46,11 +47,13 @@ function App() {
           <Route path="projects" element={<Projects />} />
           <Route path="projects/:projectId" element={<ProjectDetail />} />
           <Route path="monitoring/:projectId" element={<Monitoring />} />
+          <Route path="executions" element={<Executions />} />
           <Route path="executions/:executionId" element={<ExecutionDetail />} />
+          <Route path="api-keys" element={<APIKeys />} />
         </Route>
       </Routes>
     </BrowserRouter>
   )
 }
 
-export default App
+export default App;
