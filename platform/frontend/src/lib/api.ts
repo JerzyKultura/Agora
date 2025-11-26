@@ -1,126 +1,381 @@
 import { supabase } from './supabase'
 
-const API_URL = 'http://localhost:8000'
+async function getCurrentUserOrganization() {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
 
-async function getAuthToken() {
-  const { data: { session } } = await supabase.auth.getSession()
-  return session?.access_token
-}
+  const { data: userOrg } = await supabase
+    .from('user_organizations')
+    .select('organization_id')
+    .eq('user_id', user.id)
+    .maybeSingle()
 
-async function fetchAPI(endpoint: string, options: RequestInit = {}) {
-  const token = await getAuthToken()
-
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-    ...(token && { Authorization: `Bearer ${token}` }),
-    ...options.headers,
-  }
-
-  const response = await fetch(`${API_URL}${endpoint}`, {
-    ...options,
-    headers,
-  })
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'An error occurred' }))
-    throw new Error(error.detail || 'Request failed')
-  }
-
-  return response.json()
+  if (!userOrg) throw new Error('No organization found')
+  return userOrg.organization_id
 }
 
 export const api = {
   auth: {
-    signUp: (email: string, password: string, organizationName: string) =>
-      fetchAPI('/auth/signup', {
-        method: 'POST',
-        body: JSON.stringify({ email, password, organization_name: organizationName }),
-      }),
+    signUp: async (email: string, password: string, organizationName: string) => {
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email,
+        password,
+      })
 
-    signIn: (email: string, password: string) =>
-      fetchAPI('/auth/signin', {
-        method: 'POST',
-        body: JSON.stringify({ email, password }),
-      }),
+      if (authError) throw authError
+      if (!authData.user) throw new Error('Failed to create user')
 
-    signOut: () => fetchAPI('/auth/signout', { method: 'POST' }),
+      const { data: org, error: orgError } = await supabase
+        .from('organizations')
+        .insert({ name: organizationName })
+        .select()
+        .single()
+
+      if (orgError) throw orgError
+
+      const { error: userOrgError } = await supabase
+        .from('user_organizations')
+        .insert({
+          user_id: authData.user.id,
+          organization_id: org.id,
+          role: 'owner',
+        })
+
+      if (userOrgError) throw userOrgError
+
+      const { error: userRecordError } = await supabase
+        .from('users')
+        .insert({
+          id: authData.user.id,
+          email: authData.user.email!,
+        })
+
+      if (userRecordError) throw userRecordError
+
+      return authData
+    },
+
+    signIn: async (email: string, password: string) => {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
+      if (error) throw error
+      return data
+    },
+
+    signOut: () => supabase.auth.signOut(),
   },
 
   projects: {
-    list: () => fetchAPI('/projects'),
-    get: (id: string) => fetchAPI(`/projects/${id}`),
-    create: (data: { name: string; description?: string }) =>
-      fetchAPI('/projects', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      }),
-    update: (id: string, data: { name?: string; description?: string }) =>
-      fetchAPI(`/projects/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify(data),
-      }),
-    delete: (id: string) => fetchAPI(`/projects/${id}`, { method: 'DELETE' }),
+    list: async () => {
+      const orgId = await getCurrentUserOrganization()
+      const { data, error } = await supabase
+        .from('projects')
+        .select('*')
+        .eq('organization_id', orgId)
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+      return data || []
+    },
+
+    get: async (id: string) => {
+      const { data, error } = await supabase
+        .from('projects')
+        .select('*')
+        .eq('id', id)
+        .single()
+
+      if (error) throw error
+      return data
+    },
+
+    create: async (projectData: { name: string; description?: string }) => {
+      const orgId = await getCurrentUserOrganization()
+      const { data, error } = await supabase
+        .from('projects')
+        .insert({
+          organization_id: orgId,
+          name: projectData.name,
+          description: projectData.description,
+        })
+        .select()
+        .single()
+
+      if (error) throw error
+      return data
+    },
+
+    update: async (id: string, projectData: { name?: string; description?: string }) => {
+      const { data, error } = await supabase
+        .from('projects')
+        .update(projectData)
+        .eq('id', id)
+        .select()
+        .single()
+
+      if (error) throw error
+      return data
+    },
+
+    delete: async (id: string) => {
+      const { error } = await supabase
+        .from('projects')
+        .delete()
+        .eq('id', id)
+
+      if (error) throw error
+    },
   },
 
   workflows: {
-    list: (projectId: string) => fetchAPI(`/projects/${projectId}/workflows`),
-    get: (id: string) => fetchAPI(`/workflows/${id}`),
-    create: (projectId: string, data: { name: string; description?: string; type?: string }) =>
-      fetchAPI(`/projects/${projectId}/workflows`, {
-        method: 'POST',
-        body: JSON.stringify(data),
-      }),
-    update: (id: string, data: { name?: string; description?: string; type?: string }) =>
-      fetchAPI(`/workflows/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify(data),
-      }),
-    delete: (id: string) => fetchAPI(`/workflows/${id}`, { method: 'DELETE' }),
-    getGraph: (id: string) => fetchAPI(`/workflows/${id}/graph`),
+    list: async (projectId: string) => {
+      const { data, error } = await supabase
+        .from('workflows')
+        .select('*')
+        .eq('project_id', projectId)
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+      return data || []
+    },
+
+    get: async (id: string) => {
+      const { data, error } = await supabase
+        .from('workflows')
+        .select('*')
+        .eq('id', id)
+        .single()
+
+      if (error) throw error
+      return data
+    },
+
+    create: async (projectId: string, workflowData: { name: string; description?: string; type?: string }) => {
+      const { data, error } = await supabase
+        .from('workflows')
+        .insert({
+          project_id: projectId,
+          name: workflowData.name,
+          description: workflowData.description,
+          type: workflowData.type || 'sequential',
+        })
+        .select()
+        .single()
+
+      if (error) throw error
+      return data
+    },
+
+    update: async (id: string, workflowData: { name?: string; description?: string; type?: string }) => {
+      const { data, error } = await supabase
+        .from('workflows')
+        .update(workflowData)
+        .eq('id', id)
+        .select()
+        .single()
+
+      if (error) throw error
+      return data
+    },
+
+    delete: async (id: string) => {
+      const { error } = await supabase
+        .from('workflows')
+        .delete()
+        .eq('id', id)
+
+      if (error) throw error
+    },
+
+    getGraph: async (id: string) => {
+      const [{ data: nodes }, { data: edges }] = await Promise.all([
+        supabase.from('nodes').select('*').eq('workflow_id', id),
+        supabase.from('edges').select('*').eq('workflow_id', id),
+      ])
+
+      return { nodes: nodes || [], edges: edges || [] }
+    },
   },
 
   nodes: {
-    list: (workflowId: string) => fetchAPI(`/workflows/${workflowId}/nodes`),
-    get: (workflowId: string, nodeId: string) => fetchAPI(`/workflows/${workflowId}/nodes/${nodeId}`),
-    create: (workflowId: string, data: any) =>
-      fetchAPI(`/workflows/${workflowId}/nodes`, {
-        method: 'POST',
-        body: JSON.stringify(data),
-      }),
-    update: (workflowId: string, nodeId: string, data: any) =>
-      fetchAPI(`/workflows/${workflowId}/nodes/${nodeId}`, {
-        method: 'PUT',
-        body: JSON.stringify(data),
-      }),
-    delete: (workflowId: string, nodeId: string) =>
-      fetchAPI(`/workflows/${workflowId}/nodes/${nodeId}`, { method: 'DELETE' }),
+    list: async (workflowId: string) => {
+      const { data, error } = await supabase
+        .from('nodes')
+        .select('*')
+        .eq('workflow_id', workflowId)
+
+      if (error) throw error
+      return data || []
+    },
+
+    get: async (workflowId: string, nodeId: string) => {
+      const { data, error } = await supabase
+        .from('nodes')
+        .select('*')
+        .eq('workflow_id', workflowId)
+        .eq('id', nodeId)
+        .single()
+
+      if (error) throw error
+      return data
+    },
+
+    create: async (workflowId: string, nodeData: any) => {
+      const { data, error } = await supabase
+        .from('nodes')
+        .insert({
+          workflow_id: workflowId,
+          ...nodeData,
+        })
+        .select()
+        .single()
+
+      if (error) throw error
+      return data
+    },
+
+    update: async (workflowId: string, nodeId: string, nodeData: any) => {
+      const { data, error } = await supabase
+        .from('nodes')
+        .update(nodeData)
+        .eq('workflow_id', workflowId)
+        .eq('id', nodeId)
+        .select()
+        .single()
+
+      if (error) throw error
+      return data
+    },
+
+    delete: async (workflowId: string, nodeId: string) => {
+      const { error } = await supabase
+        .from('nodes')
+        .delete()
+        .eq('workflow_id', workflowId)
+        .eq('id', nodeId)
+
+      if (error) throw error
+    },
   },
 
   edges: {
-    list: (workflowId: string) => fetchAPI(`/workflows/${workflowId}/edges`),
-    create: (workflowId: string, data: any) =>
-      fetchAPI(`/workflows/${workflowId}/edges`, {
-        method: 'POST',
-        body: JSON.stringify(data),
-      }),
-    delete: (workflowId: string, edgeId: string) =>
-      fetchAPI(`/workflows/${workflowId}/edges/${edgeId}`, { method: 'DELETE' }),
+    list: async (workflowId: string) => {
+      const { data, error } = await supabase
+        .from('edges')
+        .select('*')
+        .eq('workflow_id', workflowId)
+
+      if (error) throw error
+      return data || []
+    },
+
+    create: async (workflowId: string, edgeData: any) => {
+      const { data, error } = await supabase
+        .from('edges')
+        .insert({
+          workflow_id: workflowId,
+          ...edgeData,
+        })
+        .select()
+        .single()
+
+      if (error) throw error
+      return data
+    },
+
+    delete: async (workflowId: string, edgeId: string) => {
+      const { error } = await supabase
+        .from('edges')
+        .delete()
+        .eq('workflow_id', workflowId)
+        .eq('id', edgeId)
+
+      if (error) throw error
+    },
   },
 
   executions: {
-    list: (params?: { workflow_id?: string; status?: string; limit?: number; offset?: number }) => {
-      const query = new URLSearchParams()
-      if (params?.workflow_id) query.append('workflow_id', params.workflow_id)
-      if (params?.status) query.append('status', params.status)
-      if (params?.limit) query.append('limit', params.limit.toString())
-      if (params?.offset) query.append('offset', params.offset.toString())
-      return fetchAPI(`/executions?${query}`)
+    list: async (params?: { workflow_id?: string; status?: string; limit?: number; offset?: number }) => {
+      let query = supabase.from('executions').select('*')
+
+      if (params?.workflow_id) query = query.eq('workflow_id', params.workflow_id)
+      if (params?.status) query = query.eq('status', params.status)
+      if (params?.limit) query = query.limit(params.limit)
+      if (params?.offset) query = query.range(params.offset, params.offset + (params.limit || 10) - 1)
+
+      query = query.order('created_at', { ascending: false })
+
+      const { data, error } = await query
+      if (error) throw error
+      return data || []
     },
-    get: (id: string) => fetchAPI(`/executions/${id}`),
-    getNodes: (id: string) => fetchAPI(`/executions/${id}/nodes`),
-    getTimeline: (id: string) => fetchAPI(`/executions/${id}/timeline`),
-    getSharedState: (id: string) => fetchAPI(`/executions/${id}/shared-state`),
-    getSpans: (id: string) => fetchAPI(`/executions/${id}/telemetry-spans`),
-    getEvents: (id: string) => fetchAPI(`/executions/${id}/telemetry-events`),
+
+    get: async (id: string) => {
+      const { data, error } = await supabase
+        .from('executions')
+        .select('*')
+        .eq('id', id)
+        .single()
+
+      if (error) throw error
+      return data
+    },
+
+    getNodes: async (id: string) => {
+      const { data, error } = await supabase
+        .from('node_executions')
+        .select('*')
+        .eq('execution_id', id)
+        .order('started_at', { ascending: true })
+
+      if (error) throw error
+      return data || []
+    },
+
+    getTimeline: async (id: string) => {
+      const { data, error } = await supabase
+        .from('node_executions')
+        .select('*')
+        .eq('execution_id', id)
+        .order('started_at', { ascending: true })
+
+      if (error) throw error
+      return data || []
+    },
+
+    getSharedState: async (id: string) => {
+      const { data, error } = await supabase
+        .from('shared_state_snapshots')
+        .select('*')
+        .eq('execution_id', id)
+        .order('sequence', { ascending: true })
+
+      if (error) throw error
+      return data || []
+    },
+
+    getSpans: async (id: string) => {
+      const { data, error } = await supabase
+        .from('telemetry_spans')
+        .select('*')
+        .eq('execution_id', id)
+        .order('start_time', { ascending: true })
+
+      if (error) throw error
+      return data || []
+    },
+
+    getEvents: async (id: string) => {
+      const { data, error } = await supabase
+        .from('telemetry_events')
+        .select('*')
+        .eq('execution_id', id)
+        .order('timestamp', { ascending: true })
+
+      if (error) throw error
+      return data || []
+    },
   },
 }
