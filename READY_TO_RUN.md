@@ -28,7 +28,7 @@ All code is implemented, dependencies installed, build successful!
 
 ```bash
 cd /tmp/cc-agent/60723596/project
-npm run dev:frontend
+c
 ```
 
 Then open: **http://localhost:5173**
