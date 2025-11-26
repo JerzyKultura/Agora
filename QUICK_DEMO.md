@@ -144,10 +144,14 @@ Copy the pattern into your own scripts:
 import os
 from agora.agora_tracer import init_traceloop, agora_node
 
-# Initialize with your API key
+# Set API key for Traceloop SDK
+if "AGORA_API_KEY" in os.environ:
+    os.environ["TRACELOOP_API_KEY"] = os.environ["AGORA_API_KEY"]
+
+# Initialize tracing
 init_traceloop(
     app_name="my_app",
-    api_key=os.environ["AGORA_API_KEY"]
+    export_to_console=True
 )
 
 # Create nodes
