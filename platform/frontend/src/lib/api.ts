@@ -16,7 +16,7 @@ async function getCurrentUserOrganization() {
 
 export const api = {
   auth: {
-    signUp: async (email: string, password: string, organizationName: string) => {
+    signUp: async (email: string, password: string, _organizationName: string) => {
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
         password,
@@ -24,33 +24,6 @@ export const api = {
 
       if (authError) throw authError
       if (!authData.user) throw new Error('Failed to create user')
-
-      const { data: org, error: orgError } = await supabase
-        .from('organizations')
-        .insert({ name: organizationName })
-        .select()
-        .single()
-
-      if (orgError) throw orgError
-
-      const { error: userOrgError } = await supabase
-        .from('user_organizations')
-        .insert({
-          user_id: authData.user.id,
-          organization_id: org.id,
-          role: 'owner',
-        })
-
-      if (userOrgError) throw userOrgError
-
-      const { error: userRecordError } = await supabase
-        .from('users')
-        .insert({
-          id: authData.user.id,
-          email: authData.user.email!,
-        })
-
-      if (userRecordError) throw userRecordError
 
       return authData
     },

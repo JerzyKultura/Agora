@@ -47,6 +47,17 @@ export default function Settings() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
+      const { data: orgData, error: orgError } = await supabase
+        .from('user_organizations')
+        .select('organization_id')
+        .eq('user_id', user.id)
+        .single()
+
+      if (orgError || !orgData) {
+        alert('No organization found. Please contact support.')
+        return
+      }
+
       const keyValue = `agora_${generateRandomString(32)}`
       const keyPrefix = keyValue.substring(0, 12)
 
@@ -55,6 +66,7 @@ export default function Settings() {
       const { error } = await supabase
         .from('api_keys')
         .insert({
+          organization_id: orgData.organization_id,
           name: newKeyName,
           key_hash: keyHash,
           key_prefix: keyPrefix
