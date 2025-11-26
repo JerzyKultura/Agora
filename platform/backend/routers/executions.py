@@ -156,7 +156,7 @@ async def get_telemetry_spans(execution_id: UUID, user = Depends(get_current_use
             .order("start_time")\
             .execute()
 
-        return {"spans": response.data}
+        return response.data
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -170,7 +170,7 @@ async def get_telemetry_events(execution_id: UUID, user = Depends(get_current_us
             .order("timestamp")\
             .execute()
 
-        return {"events": response.data}
+        return response.data
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

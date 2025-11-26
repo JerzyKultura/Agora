@@ -1,33 +1,99 @@
 """
-Cloud client for Agora Platform integration.
+Cloud client for Agora Platform integration with automatic OpenTelemetry capture.
 
-This module provides CloudAuditLogger that extends AuditLogger to automatically
-send telemetry data to the Agora Cloud Platform using API keys.
+Usage:
+    from agora.cloud_client import CloudAuditLogger
+    from agora.agora_tracer import agora_node, TracedAsyncFlow
+    
+    # Just create the logger - spans captured automatically!
+    logger = CloudAuditLogger(
+        api_key="agora_key_abc123",
+        workflow_name="MyWorkflow"
+    )
+    
+    # Define your nodes
+    @agora_node
+    async def my_node(shared):
+        return "done"
+    
+    # Build and run flow
+    flow = TracedAsyncFlow("MyWorkflow")
+    flow.start(my_node)
+    result = await flow.run_async(shared)
+    
+    # Upload automatically captures all OTel spans!
+    logger.upload()
 """
 
 import httpx
 from typing import Optional, Dict, Any, List
 from datetime import datetime
-from .telemetry import AuditLogger
+from agora.telemetry import AuditLogger
+
+# OpenTelemetry imports (optional - gracefully degrade if not installed)
+try:
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult, SimpleSpanProcessor
+    from opentelemetry.sdk.trace import ReadableSpan
+    from typing import Sequence
+    OTEL_AVAILABLE = True
+except ImportError:
+    OTEL_AVAILABLE = False
+
+
+class _CloudSpanExporter(SpanExporter):
+    """Internal exporter that captures OTel spans for CloudAuditLogger"""
+    
+    def __init__(self):
+        self.spans = []
+    
+    def export(self, spans: Sequence[ReadableSpan]) -> SpanExportResult:
+        """Convert OTel spans to platform format"""
+        for span in spans:
+            # Convert nanosecond timestamps to ISO datetime
+            start_dt = datetime.fromtimestamp(span.start_time / 1_000_000_000)
+            end_dt = datetime.fromtimestamp(span.end_time / 1_000_000_000)
+            
+            span_data = {
+                "span_id": format(span.context.span_id, '016x'),
+                "trace_id": format(span.context.trace_id, '032x'),
+                "parent_span_id": format(span.parent.span_id, '016x') if span.parent else None,
+                "name": span.name,
+                "kind": str(span.kind),
+                "status": span.status.status_code.name,
+                "start_time": start_dt.isoformat(),
+                "end_time": end_dt.isoformat(),
+                "duration_ms": int((span.end_time - span.start_time) / 1_000_000),
+                "attributes": dict(span.attributes or {}),
+                "events": []
+            }
+            self.spans.append(span_data)
+            
+        return SpanExportResult.SUCCESS
+    
+    def force_flush(self, timeout_millis: int = 30000) -> bool:
+        return True
+    
+    def shutdown(self):
+        pass
 
 
 class CloudAuditLogger(AuditLogger):
     """
-    Audit logger that sends telemetry to Agora Cloud Platform.
-
+    Audit logger that automatically captures OpenTelemetry spans and sends to Agora Cloud.
+    
     Simple Usage:
         logger = CloudAuditLogger(
-            api_key="agora_key_abc123xyz",
+            api_key="agora_key_abc123",
             workflow_name="MyWorkflow"
         )
-
-        # Use with your Agora nodes/flows
-        node = AuditedNode("processor", logger)
-        flow = AuditedFlow("MyFlow", logger)
-        result = flow.run(shared)
-
-        # Automatically uploads on completion!
-        logger.upload()
+        
+        # Use with TracedAsyncNode/TracedAsyncFlow
+        # Spans are captured automatically!
+        
+        await flow.run_async(shared)
+        logger.upload()  # Uploads with all captured spans
     """
 
     def __init__(
@@ -36,17 +102,19 @@ class CloudAuditLogger(AuditLogger):
         workflow_name: str,
         api_url: str = "http://localhost:8000",
         session_id: Optional[str] = None,
-        auto_upload: bool = True
+        auto_upload: bool = True,
+        capture_spans: bool = True
     ):
         """
-        Initialize CloudAuditLogger.
+        Initialize CloudAuditLogger with automatic OTel span capture.
 
         Args:
-            api_key: Your Agora platform API key (from Settings → API Keys)
-            workflow_name: Name of your workflow (auto-created if doesn't exist)
-            api_url: Base URL of Agora Platform API (default: http://localhost:8000)
-            session_id: Optional unique identifier for this execution session
-            auto_upload: If True, automatically upload on flow completion
+            api_key: Your Agora platform API key
+            workflow_name: Name of your workflow
+            api_url: Base URL of Agora Platform API
+            session_id: Optional unique identifier for this execution
+            auto_upload: If True, automatically upload on mark_complete()
+            capture_spans: If True, automatically capture OpenTelemetry spans (default: True)
         """
         session_id = session_id or f"session-{int(datetime.now().timestamp())}"
         super().__init__(session_id)
@@ -60,6 +128,35 @@ class CloudAuditLogger(AuditLogger):
         self.execution_end_time: Optional[datetime] = None
         self.execution_status = "running"
         self.execution_error: Optional[str] = None
+        
+        # Setup automatic span capture
+        self._span_exporter = None
+        if capture_spans and OTEL_AVAILABLE:
+            self._setup_span_capture()
+        elif capture_spans and not OTEL_AVAILABLE:
+            print("⚠️  OpenTelemetry not installed. Install with: pip install opentelemetry-api opentelemetry-sdk")
+
+    def _setup_span_capture(self):
+        """Setup OpenTelemetry to automatically capture spans"""
+        try:
+            # Create our custom exporter
+            self._span_exporter = _CloudSpanExporter()
+            
+            # Get or create tracer provider
+            provider = trace.get_tracer_provider()
+            
+            # If no provider set yet, create one
+            if not isinstance(provider, TracerProvider):
+                provider = TracerProvider()
+                trace.set_tracer_provider(provider)
+            
+            # Add our exporter as a processor
+            provider.add_span_processor(SimpleSpanProcessor(self._span_exporter))
+            
+            print(f"✅ OpenTelemetry span capture enabled for {self.workflow_name}")
+        except Exception as e:
+            print(f"⚠️  Failed to setup span capture: {e}")
+            self._span_exporter = None
 
     def mark_complete(self, status: str = "success", error: Optional[str] = None):
         """Mark execution as complete."""
@@ -71,10 +168,7 @@ class CloudAuditLogger(AuditLogger):
             self.upload()
 
     def _convert_events_to_node_executions(self) -> List[Dict[str, Any]]:
-        """
-        Convert audit events into node execution records.
-        Groups events by node name to create consolidated node execution records.
-        """
+        """Convert audit events into node execution records."""
         node_executions = []
         node_data = {}
 
@@ -132,27 +226,11 @@ class CloudAuditLogger(AuditLogger):
 
         return node_executions
 
-    def _convert_spans_to_telemetry_spans(self) -> List[Dict[str, Any]]:
-        """Convert OpenTelemetry spans to platform format."""
-        telemetry_spans = []
-
-        for span in self.completed_spans:
-            telemetry_span = {
-                "span_id": span.get("span_id", ""),
-                "trace_id": span.get("trace_id", ""),
-                "parent_span_id": span.get("parent_span_id"),
-                "name": span.get("name", ""),
-                "kind": span.get("kind"),
-                "status": span.get("status"),
-                "start_time": span.get("start_time"),
-                "end_time": span.get("end_time"),
-                "duration_ms": span.get("duration_ms"),
-                "attributes": span.get("attributes", {}),
-                "events": span.get("events", [])
-            }
-            telemetry_spans.append(telemetry_span)
-
-        return telemetry_spans
+    def _get_captured_spans(self) -> List[Dict[str, Any]]:
+        """Get spans captured by OpenTelemetry exporter"""
+        if self._span_exporter:
+            return self._span_exporter.spans
+        return self.completed_spans  # Fallback to manually added spans
 
     def _convert_events_to_telemetry_events(self) -> List[Dict[str, Any]]:
         """Convert audit events to platform telemetry events."""
@@ -171,6 +249,7 @@ class CloudAuditLogger(AuditLogger):
     def upload(self) -> Optional[str]:
         """
         Upload telemetry data to Agora Cloud Platform.
+        Automatically includes captured OpenTelemetry spans!
 
         Returns:
             Execution ID from the platform, or None if upload fails
@@ -182,11 +261,9 @@ class CloudAuditLogger(AuditLogger):
                 delta = self.execution_end_time - self.execution_start_time
                 duration_ms = int(delta.total_seconds() * 1000)
 
-            # Build telemetry payload
-            # NOTE: workflow_id is actually the workflow NAME
-            # Backend will auto-create if it doesn't exist!
+            # Build telemetry payload with auto-captured spans
             payload = {
-                "workflow_id": self.workflow_name,  # ← Backend handles this!
+                "workflow_id": self.workflow_name,
                 "session_id": self.session_id,
                 "status": self.execution_status,
                 "started_at": self.execution_start_time.isoformat(),
@@ -194,14 +271,14 @@ class CloudAuditLogger(AuditLogger):
                 "duration_ms": duration_ms,
                 "error_message": self.execution_error,
                 "node_executions": self._convert_events_to_node_executions(),
-                "telemetry_spans": self._convert_spans_to_telemetry_spans(),
+                "telemetry_spans": self._get_captured_spans(),  # ← Auto-captured!
                 "telemetry_events": self._convert_events_to_telemetry_events(),
-                "shared_state_snapshots": []  # TODO: Implement state snapshot tracking
+                "shared_state_snapshots": []
             }
 
             # Send to platform with API key authentication
             headers = {
-                "X-API-Key": self.api_key,  # ← Simple API key auth!
+                "X-API-Key": self.api_key,
                 "Content-Type": "application/json"
             }
 
@@ -219,6 +296,7 @@ class CloudAuditLogger(AuditLogger):
                 print(f"✅ Telemetry uploaded successfully!")
                 print(f"   Execution ID: {execution_id}")
                 print(f"   Workflow: {self.workflow_name}")
+                print(f"   Spans captured: {len(self._get_captured_spans())}")
                 print(f"   View at: {self.api_url.replace(':8000', ':5173')}/executions/{execution_id}")
                 
                 return execution_id
