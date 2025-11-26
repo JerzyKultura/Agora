@@ -1,6 +1,6 @@
 import { Outlet, Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { LayoutDashboard, FolderKanban, Settings, LogOut } from 'lucide-react'
+import { LayoutDashboard, FolderKanban, Activity, Settings, LogOut } from 'lucide-react'
 
 export default function Layout() {
   const navigate = useNavigate()
@@ -31,6 +31,13 @@ export default function Layout() {
           >
             <FolderKanban size={20} />
             Projects
+          </Link>
+          <Link
+            to="/monitoring"
+            className="flex items-center gap-3 px-6 py-3 hover:bg-gray-800 transition"
+          >
+            <Activity size={20} />
+            Monitoring
           </Link>
           <Link
             to="/settings"

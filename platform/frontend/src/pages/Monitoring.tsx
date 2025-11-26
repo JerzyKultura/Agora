@@ -15,6 +15,12 @@ interface Execution {
 interface Workflow {
   id: string
   name: string
+  project_id: string
+}
+
+interface Project {
+  id: string
+  name: string
 }
 
 export default function Monitoring() {
@@ -22,6 +28,7 @@ export default function Monitoring() {
   const navigate = useNavigate()
   const [executions, setExecutions] = useState<Execution[]>([])
   const [workflows, setWorkflows] = useState<Map<string, Workflow>>(new Map())
+  const [projects, setProjects] = useState<Map<string, Project>>(new Map())
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<string>('all')
 
@@ -33,25 +40,64 @@ export default function Monitoring() {
 
   const loadExecutions = async () => {
     try {
-      const workflowsData = await api.getWorkflows(projectId!)
-      const workflowMap = new Map(workflowsData.map((w: Workflow) => [w.id, w]))
-      setWorkflows(workflowMap)
+      if (projectId) {
+        // Project-specific monitoring
+        const workflowsData = await api.workflows.list(projectId)
+        const workflowMap = new Map(workflowsData.map((w: Workflow) => [w.id, w]))
+        setWorkflows(workflowMap)
 
-      const allExecutions: Execution[] = []
-      for (const workflow of workflowsData) {
-        try {
-          const execs = await api.getExecutions(workflow.id, filter === 'all' ? undefined : filter)
-          allExecutions.push(...execs)
-        } catch (e) {
-          console.error('Failed to load executions for workflow:', workflow.id)
+        const allExecutions: Execution[] = []
+        for (const workflow of workflowsData) {
+          try {
+            const execs = await api.executions.list({
+              workflow_id: workflow.id,
+              status: filter === 'all' ? undefined : filter
+            })
+            allExecutions.push(...execs)
+          } catch (e) {
+            console.error('Failed to load executions for workflow:', workflow.id)
+          }
         }
+
+        allExecutions.sort((a, b) =>
+          new Date(b.started_at).getTime() - new Date(a.started_at).getTime()
+        )
+
+        setExecutions(allExecutions)
+      } else {
+        // Global monitoring - all projects
+        const projectsData = await api.projects.list()
+        const projectMap = new Map(projectsData.map((p: Project) => [p.id, p]))
+        setProjects(projectMap)
+
+        const allWorkflows: Workflow[] = []
+        for (const project of projectsData) {
+          const workflowsData = await api.workflows.list(project.id)
+          allWorkflows.push(...workflowsData)
+        }
+
+        const workflowMap = new Map(allWorkflows.map((w: Workflow) => [w.id, w]))
+        setWorkflows(workflowMap)
+
+        const allExecutions: Execution[] = []
+        for (const workflow of allWorkflows) {
+          try {
+            const execs = await api.executions.list({
+              workflow_id: workflow.id,
+              status: filter === 'all' ? undefined : filter
+            })
+            allExecutions.push(...execs)
+          } catch (e) {
+            console.error('Failed to load executions for workflow:', workflow.id)
+          }
+        }
+
+        allExecutions.sort((a, b) =>
+          new Date(b.started_at).getTime() - new Date(a.started_at).getTime()
+        )
+
+        setExecutions(allExecutions)
       }
-
-      allExecutions.sort((a, b) =>
-        new Date(b.started_at).getTime() - new Date(a.started_at).getTime()
-      )
-
-      setExecutions(allExecutions)
     } catch (error) {
       console.error('Failed to load executions:', error)
     } finally {
@@ -109,14 +155,34 @@ export default function Monitoring() {
 
       {executions.length === 0 ? (
         <div className="bg-white rounded-lg shadow p-8 text-center">
-          <p className="text-gray-500">No executions found</p>
-          <p className="text-sm text-gray-400 mt-2">Run a workflow to see execution data here</p>
+          <div className="text-6xl mb-4">🚀</div>
+          <h3 className="text-xl font-semibold text-gray-800 mb-2">No Execution Data Yet</h3>
+          <p className="text-gray-600 mb-4">Run your Python workflow to see telemetry data here!</p>
+          <div className="bg-gray-50 rounded-lg p-4 mt-6 text-left max-w-2xl mx-auto">
+            <p className="font-semibold text-gray-700 mb-2">Quick Start:</p>
+            <pre className="text-sm text-gray-600 bg-white p-3 rounded border border-gray-200">
+{`# Install dependencies
+pip install traceloop-sdk supabase openai
+
+# Set environment variables (use your .env values)
+export VITE_SUPABASE_URL="https://xxx.supabase.co"
+export VITE_SUPABASE_ANON_KEY="eyJhbGci..."
+export OPENAI_API_KEY="sk-..."
+
+# Run demo
+python demo_workflow.py`}
+            </pre>
+            <p className="text-sm text-gray-500 mt-3">
+              Read <code className="bg-white px-2 py-1 rounded border">TELEMETRY_SETUP.md</code> for complete instructions
+            </p>
+          </div>
         </div>
       ) : (
         <div className="bg-white rounded-lg shadow overflow-hidden">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
+                {!projectId && <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Project</th>}
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Workflow</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Started</th>
@@ -125,37 +191,48 @@ export default function Monitoring() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {executions.map((execution) => (
-                <tr key={execution.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">
-                      {workflows.get(execution.workflow_id)?.name || 'Unknown'}
-                    </div>
-                    <div className="text-sm text-gray-500">
-                      {execution.id.substring(0, 8)}...
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(execution.status)}`}>
-                      {execution.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {formatDate(execution.started_at)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {formatDuration(execution.duration_ms)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <button
-                      onClick={() => navigate(`/execution/${execution.id}`)}
-                      className="text-blue-600 hover:text-blue-900"
-                    >
-                      View Details
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {executions.map((execution) => {
+                const workflow = workflows.get(execution.workflow_id)
+                const project = workflow ? projects.get(workflow.project_id) : null
+                return (
+                  <tr key={execution.id} className="hover:bg-gray-50">
+                    {!projectId && (
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">
+                          {project?.name || 'Unknown Project'}
+                        </div>
+                      </td>
+                    )}
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">
+                        {workflow?.name || 'Unknown'}
+                      </div>
+                      <div className="text-sm text-gray-500">
+                        {execution.id.substring(0, 8)}...
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(execution.status)}`}>
+                        {execution.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {formatDate(execution.started_at)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {formatDuration(execution.duration_ms)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                      <button
+                        onClick={() => navigate(`/executions/${execution.id}`)}
+                        className="text-blue-600 hover:text-blue-900"
+                      >
+                        View Details
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
