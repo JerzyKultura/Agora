@@ -30,9 +30,8 @@ Then visit **http://localhost:5173** in your browser.
 To start both frontend AND backend:
 
 ```bash
-# Terminal 1 - Backend API
+# Terminal 1 - Backend API (dependencies already installed ✅)
 cd /tmp/cc-agent/60723596/project/platform/backend
-c
 uvicorn main:app --reload --port 8000
 
 # Terminal 2 - Frontend
