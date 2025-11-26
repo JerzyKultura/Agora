@@ -76,13 +76,13 @@ async def sign_in(request: SignInRequest, supabase: Client = Depends(get_supabas
         if not auth_response.user:
             raise HTTPException(status_code=401, detail="Invalid credentials")
 
-        user_org = supabase.table("user_organizations")\
+        # Fixed: Replace .maybeSingle() with .execute() and proper data handling
+        user_org_response = supabase.table("user_organizations")\
             .select("organization_id")\
             .eq("user_id", auth_response.user.id)\
-            .maybeSingle()\
             .execute()
 
-        org_id = user_org.data["organization_id"] if user_org.data else None
+        org_id = user_org_response.data[0]["organization_id"] if user_org_response.data else None
 
         return AuthResponse(
             access_token=auth_response.session.access_token,
@@ -104,3 +104,4 @@ async def sign_out(supabase: Client = Depends(get_supabase)):
         return {"message": "Signed out successfully"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+    

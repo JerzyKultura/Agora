@@ -28,16 +28,16 @@ async def get_current_user(authorization: Optional[str] = Header(None), supabase
 @router.post("/", response_model=ProjectResponse)
 async def create_project(project: ProjectCreate, user = Depends(get_current_user), supabase: Client = Depends(get_supabase)):
     try:
-        user_org = supabase.table("user_organizations")\
+        # Fixed: Replace .maybeSingle() with .execute()
+        user_org_response = supabase.table("user_organizations")\
             .select("organization_id")\
             .eq("user_id", user.user.id)\
-            .maybeSingle()\
             .execute()
 
-        if not user_org.data:
+        if not user_org_response.data:
             raise HTTPException(status_code=403, detail="User not part of any organization")
 
-        org_id = user_org.data["organization_id"]
+        org_id = user_org_response.data[0]["organization_id"]
 
         response = supabase.table("projects").insert({
             "organization_id": org_id,
@@ -52,16 +52,16 @@ async def create_project(project: ProjectCreate, user = Depends(get_current_user
 @router.get("/", response_model=List[ProjectResponse])
 async def list_projects(user = Depends(get_current_user), supabase: Client = Depends(get_supabase)):
     try:
-        user_org = supabase.table("user_organizations")\
+        # Fixed: Replace .maybeSingle() with .execute()
+        user_org_response = supabase.table("user_organizations")\
             .select("organization_id")\
             .eq("user_id", user.user.id)\
-            .maybeSingle()\
             .execute()
 
-        if not user_org.data:
+        if not user_org_response.data:
             return []
 
-        org_id = user_org.data["organization_id"]
+        org_id = user_org_response.data[0]["organization_id"]
 
         response = supabase.table("projects")\
             .select("*")\
@@ -76,16 +76,16 @@ async def list_projects(user = Depends(get_current_user), supabase: Client = Dep
 @router.get("/{project_id}", response_model=ProjectResponse)
 async def get_project(project_id: UUID, user = Depends(get_current_user), supabase: Client = Depends(get_supabase)):
     try:
+        # Fixed: Replace .maybeSingle() with .execute()
         response = supabase.table("projects")\
             .select("*")\
             .eq("id", str(project_id))\
-            .maybeSingle()\
             .execute()
 
         if not response.data:
             raise HTTPException(status_code=404, detail="Project not found")
 
-        return response.data
+        return response.data[0]
     except HTTPException:
         raise
     except Exception as e:
@@ -150,3 +150,4 @@ async def list_workflows(project_id: UUID, user = Depends(get_current_user), sup
         return response.data
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+    

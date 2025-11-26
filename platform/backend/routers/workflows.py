@@ -15,16 +15,16 @@ router = APIRouter(prefix="/workflows", tags=["Workflows"])
 @router.get("/{workflow_id}", response_model=WorkflowResponse)
 async def get_workflow(workflow_id: UUID, user = Depends(get_current_user), supabase: Client = Depends(get_supabase)):
     try:
+        # Fixed: Replace .maybeSingle() with .execute()
         response = supabase.table("workflows")\
             .select("*")\
             .eq("id", str(workflow_id))\
-            .maybeSingle()\
             .execute()
 
         if not response.data:
             raise HTTPException(status_code=404, detail="Workflow not found")
 
-        return response.data
+        return response.data[0]
     except HTTPException:
         raise
     except Exception as e:
@@ -94,17 +94,17 @@ async def list_nodes(workflow_id: UUID, user = Depends(get_current_user), supaba
 @router.get("/{workflow_id}/nodes/{node_id}", response_model=NodeResponse)
 async def get_node(workflow_id: UUID, node_id: UUID, user = Depends(get_current_user), supabase: Client = Depends(get_supabase)):
     try:
+        # Fixed: Replace .maybeSingle() with .execute()
         response = supabase.table("nodes")\
             .select("*")\
             .eq("id", str(node_id))\
             .eq("workflow_id", str(workflow_id))\
-            .maybeSingle()\
             .execute()
 
         if not response.data:
             raise HTTPException(status_code=404, detail="Node not found")
 
-        return response.data
+        return response.data[0]
     except HTTPException:
         raise
     except Exception as e:
@@ -202,3 +202,4 @@ async def get_workflow_graph(workflow_id: UUID, user = Depends(get_current_user)
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+    
