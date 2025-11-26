@@ -2,12 +2,14 @@
 """
 Simple Agora Workflow Demo
 
-This demonstrates how to use the @agora_node decorator with API key authentication
+This demonstrates how to use the @agora_node decorator with direct Supabase upload
 to send telemetry to your deployed Agora Cloud platform.
 
 Setup:
-1. Get your API key from the platform: https://your-platform.com/settings
-2. Set the environment variable: export AGORA_API_KEY="agora_xxxxx"
+1. Get your Supabase credentials from your project's .env file
+2. Set the environment variables:
+   export VITE_SUPABASE_URL="https://your-project.supabase.co"
+   export VITE_SUPABASE_ANON_KEY="eyJhbGci..."
 3. Run this script: python demo_workflow.py
 """
 
@@ -125,16 +127,15 @@ async def run_demo():
     print(flow.to_mermaid())
     print()
 
-    if API_KEY:
+    if SUPABASE_URL and SUPABASE_KEY:
         print("="*60)
-        print("✓ Telemetry sent to Agora Cloud!")
-        print("View your workflow execution at:")
-        print("https://your-platform.com/monitoring")
+        print("✓ Telemetry sent to Supabase!")
+        print("View your workflow execution in your platform's Monitoring page")
         print("="*60)
     else:
         print("="*60)
         print("ℹ️  Local telemetry saved to: demo_traces.jsonl")
-        print("Set AGORA_API_KEY to sync with cloud platform")
+        print("Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to sync with cloud")
         print("="*60)
 
 
