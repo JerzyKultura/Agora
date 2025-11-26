@@ -32,7 +32,7 @@ To start both frontend AND backend:
 ```bash
 # Terminal 1 - Backend API
 cd /tmp/cc-agent/60723596/project/platform/backend
-pip install -r requirements.txt
+c
 uvicorn main:app --reload --port 8000
 
 # Terminal 2 - Frontend
