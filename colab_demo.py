@@ -54,26 +54,29 @@ from agora.agora_tracer import (
     TracedAsyncFlow
 )
 
-# Initialize tracing
-AGORA_KEY = os.environ.get("AGORA_API_KEY", "")
-PLATFORM_URL = os.environ.get("AGORA_PLATFORM_URL", "http://localhost:8000")
+# Initialize tracing - Direct Supabase Upload
+SUPABASE_URL = os.environ.get("VITE_SUPABASE_URL", "")
+SUPABASE_KEY = os.environ.get("VITE_SUPABASE_ANON_KEY", "")
 
-# Set Traceloop API key if provided (Traceloop SDK expects this env var)
-if AGORA_KEY:
-    os.environ["TRACELOOP_API_KEY"] = AGORA_KEY
-    os.environ["AGORA_PLATFORM_URL"] = PLATFORM_URL
-    print(f"\n✓ Connected to Agora Cloud")
-    print(f"Platform URL: {PLATFORM_URL}")
-    print(f"View telemetry at: {PLATFORM_URL}/monitoring\n")
+# Set Traceloop API key for OpenAI instrumentation
+TRACELOOP_KEY = os.environ.get("TRACELOOP_API_KEY", "dummy_key")
+os.environ["TRACELOOP_API_KEY"] = TRACELOOP_KEY
+
+if SUPABASE_URL and SUPABASE_KEY:
+    print(f"\n✓ Connected to Supabase")
+    print(f"URL: {SUPABASE_URL}")
+    print(f"View telemetry in your platform's monitoring page\n")
+    enable_upload = True
 else:
     print("\n⚠️  Running in LOCAL MODE (no cloud sync)")
-    print("To sync with cloud, set AGORA_API_KEY in Cell 2\n")
+    print("To sync with cloud, set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY\n")
+    enable_upload = False
 
 init_traceloop(
     app_name="colab_chatbot",
     export_to_console=True,
     export_to_file="chatbot_traces.jsonl",
-    enable_cloud_upload=True,
+    enable_cloud_upload=enable_upload,
     project_name="Colab Chatbot"
 )
 

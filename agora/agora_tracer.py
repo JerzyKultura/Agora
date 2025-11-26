@@ -24,11 +24,11 @@ import os, time, asyncio, inspect, functools
 from datetime import datetime
 
 try:
-    from agora.cloud_uploader import CloudUploader
-    CLOUD_UPLOADER_AVAILABLE = True
+    from agora.supabase_uploader import SupabaseUploader
+    SUPABASE_UPLOADER_AVAILABLE = True
 except ImportError:
-    CLOUD_UPLOADER_AVAILABLE = False
-    CloudUploader = None
+    SUPABASE_UPLOADER_AVAILABLE = False
+    SupabaseUploader = None
 
 _initialized = False
 tracer = None
@@ -104,14 +104,12 @@ def init_traceloop(
 
     tracer = trace.get_tracer("agora_tracer")
 
-    if enable_cloud_upload and CLOUD_UPLOADER_AVAILABLE:
-        cloud_uploader = CloudUploader(
+    if enable_cloud_upload and SUPABASE_UPLOADER_AVAILABLE:
+        cloud_uploader = SupabaseUploader(
             project_name=project_name or app_name
         )
-        if cloud_uploader.enabled:
-            print(f"✅ Cloud upload enabled for project: {project_name or app_name}")
-    elif enable_cloud_upload and not CLOUD_UPLOADER_AVAILABLE:
-        print("⚠️  Cloud upload requested but not available (install httpx)")
+    elif enable_cloud_upload and not SUPABASE_UPLOADER_AVAILABLE:
+        print("⚠️  Supabase upload not available (install supabase-py: pip install supabase)")
 
     _initialized = True
     print(f"✅ Traceloop initialized: {app_name}")

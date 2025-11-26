@@ -19,24 +19,31 @@ from agora.agora_tracer import (
     agora_node,
 )
 
-API_KEY = os.environ.get("AGORA_API_KEY", "")
-PLATFORM_URL = os.environ.get("AGORA_PLATFORM_URL", "http://localhost:8000")
+# Check for Supabase configuration
+SUPABASE_URL = os.environ.get("VITE_SUPABASE_URL", "")
+SUPABASE_KEY = os.environ.get("VITE_SUPABASE_ANON_KEY", "")
 
-if not API_KEY:
-    print("⚠️  No AGORA_API_KEY found!")
-    print("Set it with: export AGORA_API_KEY='agora_xxxxx'")
+if not SUPABASE_URL or not SUPABASE_KEY:
+    print("⚠️  Supabase credentials not found!")
+    print("Set them with:")
+    print("  export VITE_SUPABASE_URL='https://your-project.supabase.co'")
+    print("  export VITE_SUPABASE_ANON_KEY='your-anon-key'")
     print("\nRunning in local mode (no cloud sync)...\n")
+    enable_upload = False
 else:
-    # Set Traceloop and platform environment variables
-    os.environ["TRACELOOP_API_KEY"] = API_KEY
-    os.environ["AGORA_PLATFORM_URL"] = PLATFORM_URL
-    print(f"✅ Cloud upload enabled to {PLATFORM_URL}\n")
+    print(f"✅ Cloud upload enabled to Supabase\n")
+    print(f"URL: {SUPABASE_URL}\n")
+    enable_upload = True
+
+# Set Traceloop API key for OpenAI instrumentation
+TRACELOOP_KEY = os.environ.get("TRACELOOP_API_KEY", "dummy_key")
+os.environ["TRACELOOP_API_KEY"] = TRACELOOP_KEY
 
 init_traceloop(
     app_name="demo_workflow",
     export_to_console=True,
     export_to_file="demo_traces.jsonl",
-    enable_cloud_upload=True,
+    enable_cloud_upload=enable_upload,
     project_name="Demo Project"
 )
 
