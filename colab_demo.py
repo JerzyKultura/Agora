@@ -34,12 +34,13 @@ import os
 # REQUIRED: Your OpenAI API key
 os.environ["OPENAI_API_KEY"] = "sk-..."  # <- Paste your OpenAI key here
 
-# OPTIONAL: Your Agora Cloud API key (get from https://your-platform.com/settings)
-os.environ["AGORA_API_KEY"] = ""  # <- Paste your Agora key here (or leave empty)
+# OPTIONAL: Your Supabase credentials (from your .env file)
+os.environ["VITE_SUPABASE_URL"] = ""  # <- Paste your Supabase URL here (or leave empty)
+os.environ["VITE_SUPABASE_ANON_KEY"] = ""  # <- Paste your Supabase anon key here (or leave empty)
 
 print("✓ Keys configured!")
-print(f"  OpenAI: {'✓ Set' if os.environ.get('OPENAI_API_KEY', '').startswith('sk-') else '✗ Missing'}")
-print(f"  Agora:  {'✓ Set' if os.environ.get('AGORA_API_KEY', '').startswith('agora_') else '○ Not set (will run in local mode)'}")
+print(f"  OpenAI:   {'✓ Set' if os.environ.get('OPENAI_API_KEY', '').startswith('sk-') else '✗ Missing'}")
+print(f"  Supabase: {'✓ Set' if os.environ.get('VITE_SUPABASE_URL', '').startswith('http') else '○ Not set (will run in local mode)'}")
 
 # =============================================================================
 # CELL 3: RUN THE CHATBOT
@@ -148,11 +149,13 @@ async def exit_chat(shared):
     print(f"Goodbye! You had {shared.get('turn', 0)} conversations.")
     print("=" * 60)
 
-    if AGORA_KEY:
-        print("\n✓ Telemetry sent to Agora Cloud")
-        print("View at: https://your-platform.com/monitoring")
+    if SUPABASE_URL and SUPABASE_KEY:
+        print("\n✓ Telemetry sent to Supabase")
+        print(f"View at: {SUPABASE_URL.replace('https://', 'https://app.')}/project/_/editor")
+        print("Check your platform's monitoring page!")
     else:
         print("\nℹ️  Telemetry saved to: chatbot_traces.jsonl")
+        print("Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to upload to cloud")
 
     return None
 
@@ -196,12 +199,11 @@ Solution:
   - Re-run Cell 1 to install dependencies
   - Make sure the pip install commands succeeded
 
-Problem: "Agora key invalid"
+Problem: "Supabase connection failed"
 Solution:
-  - Check your AGORA_API_KEY in Cell 2
-  - Make sure it starts with 'agora_'
-  - Generate a new key at: https://your-platform.com/settings
-  - Or leave it empty to run in local mode
+  - Check your VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Cell 2
+  - Get credentials from your project's .env file
+  - Or leave them empty to run in local mode (telemetry saved to file)
 
 Problem: Chat not responding
 Solution:
