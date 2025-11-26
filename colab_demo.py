@@ -175,7 +175,9 @@ async def run_chatbot():
     print(flow.to_mermaid())
 
 # Run the chatbot
-asyncio.run(run_chatbot())
+# Note: In Colab/Jupyter, use 'await' instead of 'asyncio.run()'
+# because there's already an event loop running
+await run_chatbot()
 
 
 # =============================================================================
