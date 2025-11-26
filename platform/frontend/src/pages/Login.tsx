@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { supabase } from '../lib/supabase'
+import { api } from '../lib/api'
 import { useNavigate } from 'react-router-dom'
 
 export default function Login() {
@@ -18,18 +18,10 @@ export default function Login() {
 
     try {
       if (isSignUp) {
-        const { error } = await supabase.auth.signUp({
-          email,
-          password,
-        })
-        if (error) throw error
-        alert('Check your email for verification link!')
+        await api.auth.signUp(email, password, organizationName)
+        navigate('/dashboard')
       } else {
-        const { error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        })
-        if (error) throw error
+        await api.auth.signIn(email, password)
         navigate('/dashboard')
       }
     } catch (err: any) {
