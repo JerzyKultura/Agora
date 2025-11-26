@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import api from '../lib/api';
+import { api } from '../lib/api';
 import { 
   Clock, 
   CheckCircle, 
@@ -85,7 +85,7 @@ export default function ExecutionDetail() {
   const loadExecutionData = async () => {
     try {
       setLoading(true);
-      const [execData, nodesData, eventsData, spansData] = await Promise.all([
+      const [execData, nodesData, eventsResponse, spansResponse] = await Promise.all([
         api.executions.get(executionId!),
         api.executions.getNodes(executionId!),
         api.executions.getTelemetryEvents(executionId!),
@@ -94,8 +94,8 @@ export default function ExecutionDetail() {
       
       setExecution(execData);
       setNodeExecutions(nodesData);
-      setTelemetryEvents(eventsData);
-      setTelemetrySpans(spansData);
+      setTelemetryEvents(eventsResponse.events || eventsResponse);
+      setTelemetrySpans(spansResponse.spans || spansResponse);
     } catch (err: any) {
       setError(err.message || 'Failed to load execution data');
     } finally {
