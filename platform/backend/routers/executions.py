@@ -1,9 +1,9 @@
 from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import List, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 from database import get_supabase
 from supabase import Client
-from models import ExecutionResponse, NodeExecutionResponse
+from models import ExecutionResponse, NodeExecutionResponse, TelemetryIngest
 from routers.projects import get_current_user
 
 router = APIRouter(prefix="/executions", tags=["Executions"])
@@ -146,3 +146,120 @@ async def get_telemetry_events(execution_id: UUID, user = Depends(get_current_us
         return {"events": response.data}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/ingest", response_model=ExecutionResponse)
+async def ingest_telemetry(
+    telemetry: TelemetryIngest,
+    user = Depends(get_current_user),
+    supabase: Client = Depends(get_supabase)
+):
+    """
+    Ingest telemetry data from Agora framework execution.
+    Creates execution record with all associated node executions, spans, events, and state snapshots.
+    """
+    try:
+        # Create execution record
+        execution_id = uuid4()
+        execution_data = {
+            "id": str(execution_id),
+            "workflow_id": str(telemetry.workflow_id),
+            "status": telemetry.status,
+            "started_at": telemetry.started_at.isoformat(),
+            "completed_at": telemetry.completed_at.isoformat() if telemetry.completed_at else None,
+            "duration_ms": telemetry.duration_ms,
+            "error_message": telemetry.error_message,
+            "input_data": telemetry.input_data,
+            "output_data": telemetry.output_data
+        }
+
+        execution_response = supabase.table("executions").insert(execution_data).execute()
+
+        if not execution_response.data:
+            raise HTTPException(status_code=500, detail="Failed to create execution record")
+
+        # Insert node executions
+        if telemetry.node_executions:
+            node_executions_data = []
+            for node_exec in telemetry.node_executions:
+                node_exec_data = {
+                    "id": str(uuid4()),
+                    "execution_id": str(execution_id),
+                    "node_id": str(node_exec.node_id),
+                    "status": node_exec.status,
+                    "started_at": node_exec.started_at.isoformat(),
+                    "completed_at": node_exec.completed_at.isoformat() if node_exec.completed_at else None,
+                    "prep_duration_ms": node_exec.prep_duration_ms,
+                    "exec_duration_ms": node_exec.exec_duration_ms,
+                    "post_duration_ms": node_exec.post_duration_ms,
+                    "prep_result": node_exec.prep_result,
+                    "exec_result": node_exec.exec_result,
+                    "post_result": node_exec.post_result,
+                    "error_message": node_exec.error_message,
+                    "retry_count": node_exec.retry_count
+                }
+                node_executions_data.append(node_exec_data)
+
+            if node_executions_data:
+                supabase.table("node_executions").insert(node_executions_data).execute()
+
+        # Insert telemetry spans
+        if telemetry.telemetry_spans:
+            spans_data = []
+            for span in telemetry.telemetry_spans:
+                span_data = {
+                    "id": str(uuid4()),
+                    "execution_id": str(execution_id),
+                    "span_id": span.span_id,
+                    "trace_id": span.trace_id,
+                    "parent_span_id": span.parent_span_id,
+                    "name": span.name,
+                    "kind": span.kind,
+                    "status": span.status,
+                    "start_time": span.start_time.isoformat(),
+                    "end_time": span.end_time.isoformat() if span.end_time else None,
+                    "duration_ms": span.duration_ms,
+                    "attributes": span.attributes,
+                    "events": span.events
+                }
+                spans_data.append(span_data)
+
+            if spans_data:
+                supabase.table("telemetry_spans").insert(spans_data).execute()
+
+        # Insert telemetry events
+        if telemetry.telemetry_events:
+            events_data = []
+            for event in telemetry.telemetry_events:
+                event_data = {
+                    "id": str(uuid4()),
+                    "execution_id": str(execution_id),
+                    "event_type": event.event_type,
+                    "timestamp": event.timestamp.isoformat(),
+                    "data": event.data
+                }
+                events_data.append(event_data)
+
+            if events_data:
+                supabase.table("telemetry_events").insert(events_data).execute()
+
+        # Insert shared state snapshots
+        if telemetry.shared_state_snapshots:
+            snapshots_data = []
+            for snapshot in telemetry.shared_state_snapshots:
+                snapshot_data = {
+                    "id": str(uuid4()),
+                    "execution_id": str(execution_id),
+                    "sequence": snapshot.sequence,
+                    "state_json": snapshot.state_json
+                }
+                snapshots_data.append(snapshot_data)
+
+            if snapshots_data:
+                supabase.table("shared_state_snapshots").insert(snapshots_data).execute()
+
+        return execution_response.data[0]
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to ingest telemetry: {str(e)}")

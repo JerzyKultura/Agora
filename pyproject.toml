@@ -37,6 +37,14 @@ telemetry = [
     "opentelemetry-api>=1.20.0",
     "opentelemetry-sdk>=1.20.0"
 ]
+cloud = [
+    "httpx>=0.24.0"
+]
+full = [
+    "opentelemetry-api>=1.20.0",
+    "opentelemetry-sdk>=1.20.0",
+    "httpx>=0.24.0"
+]
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21.0",

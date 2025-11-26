@@ -402,7 +402,14 @@ class AsyncParallelBatchFlow(AsyncFlow):
 __all__ = [
     # Sync classes
     'BaseNode', 'Node', 'BatchNode', 'Flow',
-    # Async classes  
+    # Async classes
     'AsyncNode', 'AsyncFlow', 'AsyncBatchNode', 'AsyncParallelBatchNode',
     'AsyncBatchFlow', 'AsyncParallelBatchFlow'
 ]
+
+# Cloud client import (optional, requires httpx)
+try:
+    from .cloud_client import CloudAuditLogger
+    __all__.append('CloudAuditLogger')
+except ImportError:
+    pass  # httpx not installed, CloudAuditLogger unavailable

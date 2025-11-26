@@ -144,3 +144,58 @@ class APIKeyResponse(BaseModel):
     expires_at: Optional[datetime]
     last_used_at: Optional[datetime]
     revoked_at: Optional[datetime]
+
+# Telemetry Ingestion Models
+class NodeExecutionIngest(BaseModel):
+    node_id: UUID
+    node_name: str
+    node_type: str
+    status: str
+    started_at: datetime
+    completed_at: Optional[datetime] = None
+    prep_duration_ms: Optional[int] = None
+    exec_duration_ms: Optional[int] = None
+    post_duration_ms: Optional[int] = None
+    prep_result: Optional[Dict[str, Any]] = None
+    exec_result: Optional[Dict[str, Any]] = None
+    post_result: Optional[Dict[str, Any]] = None
+    error_message: Optional[str] = None
+    retry_count: int = 0
+
+class TelemetrySpanIngest(BaseModel):
+    span_id: str
+    trace_id: str
+    parent_span_id: Optional[str] = None
+    name: str
+    kind: Optional[str] = None
+    status: Optional[str] = None
+    start_time: datetime
+    end_time: Optional[datetime] = None
+    duration_ms: Optional[int] = None
+    attributes: Optional[Dict[str, Any]] = {}
+    events: Optional[List[Dict[str, Any]]] = []
+
+class TelemetryEventIngest(BaseModel):
+    event_type: str
+    timestamp: datetime
+    data: Optional[Dict[str, Any]] = {}
+
+class SharedStateSnapshotIngest(BaseModel):
+    sequence: int
+    state_json: Dict[str, Any]
+    node_name: Optional[str] = None
+
+class TelemetryIngest(BaseModel):
+    workflow_id: UUID
+    session_id: str
+    status: str = "running"
+    started_at: datetime
+    completed_at: Optional[datetime] = None
+    duration_ms: Optional[int] = None
+    error_message: Optional[str] = None
+    input_data: Optional[Dict[str, Any]] = None
+    output_data: Optional[Dict[str, Any]] = None
+    node_executions: List[NodeExecutionIngest] = []
+    telemetry_spans: List[TelemetrySpanIngest] = []
+    telemetry_events: List[TelemetryEventIngest] = []
+    shared_state_snapshots: List[SharedStateSnapshotIngest] = []
