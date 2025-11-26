@@ -56,19 +56,21 @@ from agora.agora_tracer import (
 
 # Initialize tracing
 AGORA_KEY = os.environ.get("AGORA_API_KEY", "")
+
+# Set Traceloop API key if provided (Traceloop SDK expects this env var)
+if AGORA_KEY:
+    os.environ["TRACELOOP_API_KEY"] = AGORA_KEY
+    print(f"\n✓ Connected to Agora Cloud")
+    print(f"View telemetry at: https://your-platform.com/monitoring\n")
+else:
+    print("\n⚠️  Running in LOCAL MODE (no cloud sync)")
+    print("To sync with cloud, set AGORA_API_KEY in Cell 2\n")
+
 init_traceloop(
     app_name="colab_chatbot",
     export_to_console=True,
-    export_to_file="chatbot_traces.jsonl",
-    api_key=AGORA_KEY if AGORA_KEY else None
+    export_to_file="chatbot_traces.jsonl"
 )
-
-if not AGORA_KEY:
-    print("\n⚠️  Running in LOCAL MODE (no cloud sync)")
-    print("To sync with cloud, set AGORA_API_KEY in Cell 2\n")
-else:
-    print(f"\n✓ Connected to Agora Cloud")
-    print(f"View telemetry at: https://your-platform.com/monitoring\n")
 
 # Create OpenAI client
 client = OpenAI()

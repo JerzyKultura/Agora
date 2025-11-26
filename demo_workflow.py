@@ -25,12 +25,14 @@ if not API_KEY:
     print("⚠️  No AGORA_API_KEY found!")
     print("Set it with: export AGORA_API_KEY='agora_xxxxx'")
     print("\nRunning in local mode (no cloud sync)...\n")
+else:
+    # Set Traceloop API key (Traceloop SDK expects this env var)
+    os.environ["TRACELOOP_API_KEY"] = API_KEY
 
 init_traceloop(
     app_name="demo_workflow",
     export_to_console=True,
-    export_to_file="demo_traces.jsonl",
-    api_key=API_KEY if API_KEY else None
+    export_to_file="demo_traces.jsonl"
 )
 
 
