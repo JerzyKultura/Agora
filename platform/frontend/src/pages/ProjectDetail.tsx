@@ -67,13 +67,19 @@ export default function ProjectDetail() {
           setGraphNodes(transformedNodes)
           setGraphEdges(transformedEdges)
 
-          // Map node details for CodeViewer
-          const codeMap: Record<string, any> = {}
+          // Map node details (prioritize code, fallback to config)
+          const detailMap: Record<string, { content: string; language: string }> = {}
           nodes.forEach((n: any) => {
-            // For now, allow viewing the raw JSON config since we don't have code
-            codeMap[n.id] = n.config ? JSON.stringify(n.config, null, 2) : "No config available"
+            if (n.code) {
+              detailMap[n.id] = { content: n.code, language: 'python' }
+            } else {
+              detailMap[n.id] = {
+                content: n.config ? JSON.stringify(n.config, null, 2) : "No details available",
+                language: 'json'
+              }
+            }
           })
-          setNodeData(codeMap)
+          setNodeData(detailMap)
         }
       } catch (err: any) {
         console.error("Failed to load project:", err)
@@ -160,8 +166,8 @@ export default function ProjectDetail() {
             </div>
             <div className="flex-1 p-0 overflow-hidden relative">
               <CodeViewer
-                code={nodeData[selectedNodeId] || "# No details available"}
-                language="json"
+                code={nodeData[selectedNodeId]?.content || "# No details available"}
+                language={nodeData[selectedNodeId]?.language || "python"}
               />
             </div>
           </div>

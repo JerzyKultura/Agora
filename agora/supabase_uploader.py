@@ -239,7 +239,7 @@ class SupabaseUploader:
             print(f"⚠️  Failed to get/create workflow: {e}")
             return None
 
-    async def _register_node(self, node_name: str, node_type: str = "async_node", description: str = "") -> Optional[str]:
+    async def _register_node(self, node_name: str, node_type: str = "async_node", description: str = "", code: Optional[str] = None) -> Optional[str]:
         """Register a node in the database for the workflow graph."""
         if not self.enabled or not self.workflow_id:
             return None
@@ -254,13 +254,18 @@ class SupabaseUploader:
                 .execute()
             
             if result.data:
-                return result.data[0]["id"]
+                node_id = result.data[0]["id"]
+                # Update code if provided (to refresh metadata from previous empty runs)
+                if code:
+                    self.client.table("nodes").update({"code": code}).eq("id", node_id).execute()
+                return node_id
             
             # Create new node with metadata resiliently
             result = await self._execute_resilient("nodes", {
                 "workflow_id": self.workflow_id,
                 "name": node_name,
                 "type": node_type,
+                "code": code,
                 "config": {
                     "description": description,
                     "node_type": node_type
@@ -338,13 +343,16 @@ class SupabaseUploader:
         # Register all nodes first
         for node in nodes:
             node_name = node.get("name", node) if isinstance(node, dict) else node
-            await self._register_node(node_name)
+            node_code = node.get("code") if isinstance(node, dict) else None
+            await self._register_node(node_name, code=node_code)
         
         # Register all edges
         for edge in edges:
-            source = edge.get("source")
-            target = edge.get("target")
-            label = edge.get("label", "")
+            # Handle both possible naming conventions
+            source = edge.get("from") or edge.get("source")
+            target = edge.get("to") or edge.get("target")
+            label = edge.get("action") or edge.get("label", "")
+            
             if source and target:
                 await self._register_edge(source, target, label)
 
@@ -474,6 +482,7 @@ class SupabaseUploader:
         completed_at: Optional[datetime] = None,
         prep_duration_ms: Optional[int] = None,
         exec_duration_ms: Optional[int] = None,
+        code: Optional[str] = None,
         post_duration_ms: Optional[int] = None,
         error_message: Optional[str] = None,
         retry_count: int = 0,
@@ -485,8 +494,8 @@ class SupabaseUploader:
             return
 
         try:
-            # Get or create node
-            node_id = await self._register_node(node_name, node_type)
+            # 1. Register node if needed
+            node_id = await self._register_node(node_name, node_type, code=code)
             if not node_id:
                 return
 
