@@ -43,10 +43,15 @@ export const api = {
   },
 
   auth: {
-    signUp: async (email: string, password: string, _organizationName: string) => {
+    signUp: async (email: string, password: string, organizationName: string) => {
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
         password,
+        options: {
+          data: {
+            organization_name: organizationName,
+          },
+        },
       })
 
       if (authError) throw authError
@@ -305,7 +310,7 @@ export const api = {
       if (params?.limit) query = query.limit(params.limit)
       if (params?.offset) query = query.range(params.offset, params.offset + (params.limit || 10) - 1)
 
-      query = query.order('created_at', { ascending: false })
+      query = query.order('started_at', { ascending: false })
 
       const { data, error } = await query
       if (error) throw error

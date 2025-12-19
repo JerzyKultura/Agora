@@ -30,6 +30,7 @@ export default function Monitoring() {
   const [workflows, setWorkflows] = useState<Map<string, Workflow>>(new Map())
   const [projects, setProjects] = useState<Map<string, Project>>(new Map())
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<string>('all')
 
   useEffect(() => {
@@ -98,8 +99,9 @@ export default function Monitoring() {
 
         setExecutions(allExecutions)
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to load executions:', error)
+      setError(error.message || 'Failed to load monitoring data')
     } finally {
       setLoading(false)
     }
@@ -134,6 +136,21 @@ export default function Monitoring() {
     )
   }
 
+  if (error) {
+    return (
+      <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-6">
+        <p className="font-bold">Error Loading Data</p>
+        <p>{error}</p>
+        <button
+          onClick={() => window.location.reload()}
+          className="mt-2 text-sm underline hover:text-red-800"
+        >
+          Reload Page
+        </button>
+      </div>
+    )
+  }
+
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
@@ -161,7 +178,7 @@ export default function Monitoring() {
           <div className="bg-gray-50 rounded-lg p-4 mt-6 text-left max-w-2xl mx-auto">
             <p className="font-semibold text-gray-700 mb-2">Quick Start:</p>
             <pre className="text-sm text-gray-600 bg-white p-3 rounded border border-gray-200">
-{`# Install dependencies
+              {`# Install dependencies
 pip install traceloop-sdk supabase openai
 
 # Set environment variables (use your .env values)

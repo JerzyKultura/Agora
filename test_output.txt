@@ -1,0 +1,1085 @@
+✅ Cloud upload enabled to Supabase
+
+URL: https://tfueafatqxspitjcbukq.supabase.co
+
+[32mTraceloop exporting traces to a custom exporter
+[39m
+[33mMetrics are disabled[39m
+DEBUG: Creating SupabaseUploader for Demo Project
+✅ Supabase uploader enabled for project: Demo Project
+DEBUG: Using forced Project ID: 71b64428-95e2-4784-8f02-4b7577f78d6a
+✅ Traceloop initialized: demo_workflow
+============================================================
+AGORA WORKFLOW DEMO
+============================================================
+
+DEBUG: Getting/Creating Workflow: DemoWorkflow
+⚠️  Failed to get/create workflow: {'code': '42501', 'details': None, 'hint': None, 'message': 'new row violates row-level security policy for table "workflows"'}
+⚠️  Failed to setup workflow - checking permissions...
+{
+    "name": "Start.prep",
+    "context": {
+        "trace_id": "0x15b080328df2b6d71a3d691366972260",
+        "span_id": "0xf5e402fb18428be9",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0x3d0d24f6b7bcea72",
+    "start_time": "2025-12-19T01:53:50.948516Z",
+    "end_time": "2025-12-19T01:53:50.948567Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "agora.node": "Start",
+        "agora.phase": "prep",
+        "duration_ms": 0.0
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.38.0",
+            "service.name": "demo_workflow"
+        },
+        "schema_url": ""
+    }
+}
+🚀 Starting demo workflow...
+{
+    "name": "Start.exec",
+    "context": {
+        "trace_id": "0x15b080328df2b6d71a3d691366972260",
+        "span_id": "0x650af35dfba6d260",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0x3d0d24f6b7bcea72",
+    "start_time": "2025-12-19T01:53:50.950112Z",
+    "end_time": "2025-12-19T01:53:50.950147Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "agora.node": "Start",
+        "agora.phase": "exec",
+        "retry_count": 0,
+        "duration_ms": 0.01
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.38.0",
+            "service.name": "demo_workflow"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "Start.post",
+    "context": {
+        "trace_id": "0x15b080328df2b6d71a3d691366972260",
+        "span_id": "0xb79141d215a2c40b",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0x3d0d24f6b7bcea72",
+    "start_time": "2025-12-19T01:53:50.950548Z",
+    "end_time": "2025-12-19T01:53:50.950574Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "agora.node": "Start",
+        "agora.phase": "post",
+        "duration_ms": 0.0,
+        "next_action": "process"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.38.0",
+            "service.name": "demo_workflow"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "Start.node",
+    "context": {
+        "trace_id": "0x15b080328df2b6d71a3d691366972260",
+        "span_id": "0x3d0d24f6b7bcea72",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0x68f0fd03a0cc1a1c",
+    "start_time": "2025-12-19T01:53:50.948414Z",
+    "end_time": "2025-12-19T01:53:50.950808Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "agora.node": "Start",
+        "agora.kind": "node",
+        "total_duration_ms": 2.36
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.38.0",
+            "service.name": "demo_workflow"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "ProcessData.prep",
+    "context": {
+        "trace_id": "0x15b080328df2b6d71a3d691366972260",
+        "span_id": "0x65e60b667ee4ed89",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0x36c1986ae4f5a1ed",
+    "start_time": "2025-12-19T01:53:50.951276Z",
+    "end_time": "2025-12-19T01:53:50.951299Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "agora.node": "ProcessData",
+        "agora.phase": "prep",
+        "duration_ms": 0.0
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.38.0",
+            "service.name": "demo_workflow"
+        },
+        "schema_url": ""
+    }
+}
+  ✓ Processed item #1
+{
+    "name": "ProcessData.exec",
+    "context": {
+        "trace_id": "0x15b080328df2b6d71a3d691366972260",
+        "span_id": "0x158d22655f44c316",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0x36c1986ae4f5a1ed",
+    "start_time": "2025-12-19T01:53:50.953799Z",
+    "end_time": "2025-12-19T01:53:51.455006Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "agora.node": "ProcessData",
+        "agora.phase": "exec",
+        "retry_count": 0,
+        "duration_ms": 501.14
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.38.0",
+            "service.name": "demo_workflow"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "ProcessData.post",
+    "context": {
+        "trace_id": "0x15b080328df2b6d71a3d691366972260",
+        "span_id": "0xeb70b1fbd8a1ce14",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0x36c1986ae4f5a1ed",
+    "start_time": "2025-12-19T01:53:51.457024Z",
+    "end_time": "2025-12-19T01:53:51.457094Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "agora.node": "ProcessData",
+        "agora.phase": "post",
+        "duration_ms": 0.0,
+        "next_action": "process"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.38.0",
+            "service.name": "demo_workflow"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "ProcessData.node",
+    "context": {
+        "trace_id": "0x15b080328df2b6d71a3d691366972260",
+        "span_id": "0x36c1986ae4f5a1ed",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0x68f0fd03a0cc1a1c",
+    "start_time": "2025-12-19T01:53:50.951205Z",
+    "end_time": "2025-12-19T01:53:51.458806Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "agora.node": "ProcessData",
+        "agora.kind": "node",
+        "total_duration_ms": 507.55
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.38.0",
+            "service.name": "demo_workflow"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "ProcessData.prep",
+    "context": {
+        "trace_id": "0x15b080328df2b6d71a3d691366972260",
+        "span_id": "0x460e3a8110907af5",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xad871fa2e64f465f",
+    "start_time": "2025-12-19T01:53:51.459617Z",
+    "end_time": "2025-12-19T01:53:51.459649Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "agora.node": "ProcessData",
+        "agora.phase": "prep",
+        "duration_ms": 0.0
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.38.0",
+            "service.name": "demo_workflow"
+        },
+        "schema_url": ""
+    }
+}
+  ✓ Processed item #2
+{
+    "name": "ProcessData.exec",
+    "context": {
+        "trace_id": "0x15b080328df2b6d71a3d691366972260",
+        "span_id": "0xa441fdfbd5a1024c",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xad871fa2e64f465f",
+    "start_time": "2025-12-19T01:53:51.460687Z",
+    "end_time": "2025-12-19T01:53:51.962280Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "agora.node": "ProcessData",
+        "agora.phase": "exec",
+        "retry_count": 0,
+        "duration_ms": 501.51
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.38.0",
+            "service.name": "demo_workflow"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "ProcessData.post",
+    "context": {
+        "trace_id": "0x15b080328df2b6d71a3d691366972260",
+        "span_id": "0x5977d5e8858eefaf",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xad871fa2e64f465f",
+    "start_time": "2025-12-19T01:53:51.963209Z",
+    "end_time": "2025-12-19T01:53:51.963268Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "agora.node": "ProcessData",
+        "agora.phase": "post",
+        "duration_ms": 0.0,
+        "next_action": "process"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.38.0",
+            "service.name": "demo_workflow"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "ProcessData.node",
+    "context": {
+        "trace_id": "0x15b080328df2b6d71a3d691366972260",
+        "span_id": "0xad871fa2e64f465f",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0x68f0fd03a0cc1a1c",
+    "start_time": "2025-12-19T01:53:51.459531Z",
+    "end_time": "2025-12-19T01:53:51.963678Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "agora.node": "ProcessData",
+        "agora.kind": "node",
+        "total_duration_ms": 504.1
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.38.0",
+            "service.name": "demo_workflow"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "ProcessData.prep",
+    "context": {
+        "trace_id": "0x15b080328df2b6d71a3d691366972260",
+        "span_id": "0xc2497666e7d0a4be",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xfa4ccb494bf34e2f",
+    "start_time": "2025-12-19T01:53:51.964226Z",
+    "end_time": "2025-12-19T01:53:51.964263Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "agora.node": "ProcessData",
+        "agora.phase": "prep",
+        "duration_ms": 0.0
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.38.0",
+            "service.name": "demo_workflow"
+        },
+        "schema_url": ""
+    }
+}
+  ✓ Processed item #3
+{
+    "name": "ProcessData.exec",
+    "context": {
+        "trace_id": "0x15b080328df2b6d71a3d691366972260",
+        "span_id": "0xecf34559286345c5",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xfa4ccb494bf34e2f",
+    "start_time": "2025-12-19T01:53:51.964655Z",
+    "end_time": "2025-12-19T01:53:52.465105Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "agora.node": "ProcessData",
+        "agora.phase": "exec",
+        "retry_count": 0,
+        "duration_ms": 500.38
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.38.0",
+            "service.name": "demo_workflow"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "ProcessData.post",
+    "context": {
+        "trace_id": "0x15b080328df2b6d71a3d691366972260",
+        "span_id": "0xc7041a3121a5bc4b",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xfa4ccb494bf34e2f",
+    "start_time": "2025-12-19T01:53:52.466203Z",
+    "end_time": "2025-12-19T01:53:52.466267Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "agora.node": "ProcessData",
+        "agora.phase": "post",
+        "duration_ms": 0.0,
+        "next_action": "process"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.38.0",
+            "service.name": "demo_workflow"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "ProcessData.node",
+    "context": {
+        "trace_id": "0x15b080328df2b6d71a3d691366972260",
+        "span_id": "0xfa4ccb494bf34e2f",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0x68f0fd03a0cc1a1c",
+    "start_time": "2025-12-19T01:53:51.964131Z",
+    "end_time": "2025-12-19T01:53:52.466716Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "agora.node": "ProcessData",
+        "agora.kind": "node",
+        "total_duration_ms": 502.53
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.38.0",
+            "service.name": "demo_workflow"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "ProcessData.prep",
+    "context": {
+        "trace_id": "0x15b080328df2b6d71a3d691366972260",
+        "span_id": "0x9f978bea25add838",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0x781d95bf44814efc",
+    "start_time": "2025-12-19T01:53:52.467255Z",
+    "end_time": "2025-12-19T01:53:52.467294Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "agora.node": "ProcessData",
+        "agora.phase": "prep",
+        "duration_ms": 0.0
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.38.0",
+            "service.name": "demo_workflow"
+        },
+        "schema_url": ""
+    }
+}
+  ✓ Processed item #4
+{
+    "name": "ProcessData.exec",
+    "context": {
+        "trace_id": "0x15b080328df2b6d71a3d691366972260",
+        "span_id": "0x5facf425fc0fe951",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0x781d95bf44814efc",
+    "start_time": "2025-12-19T01:53:52.467899Z",
+    "end_time": "2025-12-19T01:53:52.969072Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "agora.node": "ProcessData",
+        "agora.phase": "exec",
+        "retry_count": 0,
+        "duration_ms": 501.1
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.38.0",
+            "service.name": "demo_workflow"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "ProcessData.post",
+    "context": {
+        "trace_id": "0x15b080328df2b6d71a3d691366972260",
+        "span_id": "0x089b2a72b1ae0cbd",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0x781d95bf44814efc",
+    "start_time": "2025-12-19T01:53:52.969718Z",
+    "end_time": "2025-12-19T01:53:52.969752Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "agora.node": "ProcessData",
+        "agora.phase": "post",
+        "duration_ms": 0.0,
+        "next_action": "process"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.38.0",
+            "service.name": "demo_workflow"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "ProcessData.node",
+    "context": {
+        "trace_id": "0x15b080328df2b6d71a3d691366972260",
+        "span_id": "0x781d95bf44814efc",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0x68f0fd03a0cc1a1c",
+    "start_time": "2025-12-19T01:53:52.467158Z",
+    "end_time": "2025-12-19T01:53:52.970161Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "agora.node": "ProcessData",
+        "agora.kind": "node",
+        "total_duration_ms": 502.96
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.38.0",
+            "service.name": "demo_workflow"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "ProcessData.prep",
+    "context": {
+        "trace_id": "0x15b080328df2b6d71a3d691366972260",
+        "span_id": "0xf82a97a8d21aefd2",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0x0a125b38e45e4fff",
+    "start_time": "2025-12-19T01:53:52.970465Z",
+    "end_time": "2025-12-19T01:53:52.970485Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "agora.node": "ProcessData",
+        "agora.phase": "prep",
+        "duration_ms": 0.0
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.38.0",
+            "service.name": "demo_workflow"
+        },
+        "schema_url": ""
+    }
+}
+  ✓ Processed item #5
+{
+    "name": "ProcessData.exec",
+    "context": {
+        "trace_id": "0x15b080328df2b6d71a3d691366972260",
+        "span_id": "0x473e6fe23c1cbfef",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0x0a125b38e45e4fff",
+    "start_time": "2025-12-19T01:53:52.970702Z",
+    "end_time": "2025-12-19T01:53:53.473167Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "agora.node": "ProcessData",
+        "agora.phase": "exec",
+        "retry_count": 0,
+        "duration_ms": 502.19
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.38.0",
+            "service.name": "demo_workflow"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "ProcessData.post",
+    "context": {
+        "trace_id": "0x15b080328df2b6d71a3d691366972260",
+        "span_id": "0xdbd06013eb821401",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0x0a125b38e45e4fff",
+    "start_time": "2025-12-19T01:53:53.474730Z",
+    "end_time": "2025-12-19T01:53:53.474796Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "agora.node": "ProcessData",
+        "agora.phase": "post",
+        "duration_ms": 0.0,
+        "next_action": "analyze"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.38.0",
+            "service.name": "demo_workflow"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "ProcessData.node",
+    "context": {
+        "trace_id": "0x15b080328df2b6d71a3d691366972260",
+        "span_id": "0x0a125b38e45e4fff",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0x68f0fd03a0cc1a1c",
+    "start_time": "2025-12-19T01:53:52.970412Z",
+    "end_time": "2025-12-19T01:53:53.475117Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "agora.node": "ProcessData",
+        "agora.kind": "node",
+        "total_duration_ms": 504.67
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.38.0",
+            "service.name": "demo_workflow"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "AnalyzeResults.prep",
+    "context": {
+        "trace_id": "0x15b080328df2b6d71a3d691366972260",
+        "span_id": "0x541215fe626fdf5c",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0x11357e65db9525ef",
+    "start_time": "2025-12-19T01:53:53.475633Z",
+    "end_time": "2025-12-19T01:53:53.475655Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "agora.node": "AnalyzeResults",
+        "agora.phase": "prep",
+        "duration_ms": 0.0
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.38.0",
+            "service.name": "demo_workflow"
+        },
+        "schema_url": ""
+    }
+}
+
+📊 Analyzing results...
+  Total items processed: 5
+  Results: 5 items
+{
+    "name": "AnalyzeResults.exec",
+    "context": {
+        "trace_id": "0x15b080328df2b6d71a3d691366972260",
+        "span_id": "0x51360ceb496f3476",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0x11357e65db9525ef",
+    "start_time": "2025-12-19T01:53:53.475905Z",
+    "end_time": "2025-12-19T01:53:53.776766Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "agora.node": "AnalyzeResults",
+        "agora.phase": "exec",
+        "retry_count": 0,
+        "duration_ms": 300.73
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.38.0",
+            "service.name": "demo_workflow"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "AnalyzeResults.post",
+    "context": {
+        "trace_id": "0x15b080328df2b6d71a3d691366972260",
+        "span_id": "0xccd0f068c33c1340",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0x11357e65db9525ef",
+    "start_time": "2025-12-19T01:53:53.778134Z",
+    "end_time": "2025-12-19T01:53:53.778212Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "agora.node": "AnalyzeResults",
+        "agora.phase": "post",
+        "duration_ms": 0.0,
+        "next_action": "finish"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.38.0",
+            "service.name": "demo_workflow"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "AnalyzeResults.node",
+    "context": {
+        "trace_id": "0x15b080328df2b6d71a3d691366972260",
+        "span_id": "0x11357e65db9525ef",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0x68f0fd03a0cc1a1c",
+    "start_time": "2025-12-19T01:53:53.475576Z",
+    "end_time": "2025-12-19T01:53:53.778874Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "agora.node": "AnalyzeResults",
+        "agora.kind": "node",
+        "total_duration_ms": 303.26
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.38.0",
+            "service.name": "demo_workflow"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "Finish.prep",
+    "context": {
+        "trace_id": "0x15b080328df2b6d71a3d691366972260",
+        "span_id": "0xfd24d7ba0a6fd518",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0x41841cdb86c6b172",
+    "start_time": "2025-12-19T01:53:53.779557Z",
+    "end_time": "2025-12-19T01:53:53.779596Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "agora.node": "Finish",
+        "agora.phase": "prep",
+        "duration_ms": 0.0
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.38.0",
+            "service.name": "demo_workflow"
+        },
+        "schema_url": ""
+    }
+}
+
+✅ Workflow completed successfully!
+  Final count: 5
+  Analysis: {'total': 5, 'status': 'success'}
+{
+    "name": "Finish.exec",
+    "context": {
+        "trace_id": "0x15b080328df2b6d71a3d691366972260",
+        "span_id": "0xc055c99b9f5bf3c6",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0x41841cdb86c6b172",
+    "start_time": "2025-12-19T01:53:53.779971Z",
+    "end_time": "2025-12-19T01:53:53.780038Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "agora.node": "Finish",
+        "agora.phase": "exec",
+        "retry_count": 0,
+        "duration_ms": 0.03
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.38.0",
+            "service.name": "demo_workflow"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "Finish.post",
+    "context": {
+        "trace_id": "0x15b080328df2b6d71a3d691366972260",
+        "span_id": "0xd836effc0283c53f",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0x41841cdb86c6b172",
+    "start_time": "2025-12-19T01:53:53.780567Z",
+    "end_time": "2025-12-19T01:53:53.780617Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "agora.node": "Finish",
+        "agora.phase": "post",
+        "duration_ms": 0.0,
+        "next_action": "None"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.38.0",
+            "service.name": "demo_workflow"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "Finish.node",
+    "context": {
+        "trace_id": "0x15b080328df2b6d71a3d691366972260",
+        "span_id": "0x41841cdb86c6b172",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0x68f0fd03a0cc1a1c",
+    "start_time": "2025-12-19T01:53:53.779462Z",
+    "end_time": "2025-12-19T01:53:53.780936Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "agora.node": "Finish",
+        "agora.kind": "node",
+        "total_duration_ms": 1.43
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.38.0",
+            "service.name": "demo_workflow"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "DemoWorkflow.flow",
+    "context": {
+        "trace_id": "0x15b080328df2b6d71a3d691366972260",
+        "span_id": "0x68f0fd03a0cc1a1c",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": null,
+    "start_time": "2025-12-19T01:53:50.948311Z",
+    "end_time": "2025-12-19T01:53:53.781218Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "agora.flow": "DemoWorkflow",
+        "total_duration_ms": 2832.86
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.38.0",
+            "service.name": "demo_workflow"
+        },
+        "schema_url": ""
+    }
+}
+
+============================================================
+WORKFLOW DIAGRAM
+============================================================
+
+graph TD
+    Start -->|process| ProcessData
+    ProcessData -->|process| ProcessData
+    ProcessData -->|analyze| AnalyzeResults
+    AnalyzeResults -->|finish| Finish
+
+============================================================
+✓ Telemetry sent to Supabase!
+View your workflow execution in your platform's Monitoring page
+============================================================

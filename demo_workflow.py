@@ -15,9 +15,14 @@ Setup:
 
 import asyncio
 import os
+from dotenv import load_dotenv
+
+# Load env vars from .env file
+load_dotenv()
+
 from agora.agora_tracer import (
     TracedAsyncFlow,
-    init_traceloop,
+    init_agora,
     agora_node,
 )
 
@@ -37,11 +42,8 @@ else:
     print(f"URL: {SUPABASE_URL}\n")
     enable_upload = True
 
-# Set Traceloop API key for OpenAI instrumentation
-TRACELOOP_KEY = os.environ.get("TRACELOOP_API_KEY", "dummy_key")
-os.environ["TRACELOOP_API_KEY"] = TRACELOOP_KEY
-
-init_traceloop(
+# Initialize Agora telemetry
+init_agora(
     app_name="demo_workflow",
     export_to_console=True,
     export_to_file="demo_traces.jsonl",
