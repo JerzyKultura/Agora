@@ -3,12 +3,12 @@
 # ==============================================================
 
 """
-Traceloop integration for Agora workflows.
+Agora telemetry integration for workflows.
 Usage:
-    from agora_tracer import TracedAsyncNode, init_traceloop
+    from agora_tracer import TracedAsyncNode, init_agora
     
     # Initialize once at start
-    init_traceloop(app_name="my_app", export_to_console=True)
+    init_agora(app_name="my_app", export_to_console=True)
     
     # Use traced classes
     class MyNode(TracedAsyncNode):
@@ -34,29 +34,31 @@ _initialized = False
 tracer = None
 cloud_uploader = None
 
-def init_traceloop(
+def init_agora(
     app_name="agora_app",
     export_to_console=True,
     export_to_file=None,
     disable_content_logging=True,
     enable_cloud_upload=True,
-    project_name=None
+    project_name=None,
+    api_key=None
 ):
     """
-    Initialize Traceloop for Agora telemetry.
+    Initialize Agora telemetry system.
 
     Args:
         app_name: Name of your application
         export_to_console: Print spans to console (default: True)
         export_to_file: Path to JSONL file for export (default: None)
         disable_content_logging: Don't log prompt/response content (default: True)
-        enable_cloud_upload: Upload telemetry to cloud platform (default: True)
-        project_name: Project name for cloud platform (default: app_name)
+        enable_cloud_upload: Upload telemetry to Supabase (default: True)
+        project_name: Project name for Supabase (default: app_name)
+        api_key: Optional API key for authentication
     """
     global _initialized, tracer, cloud_uploader
 
     if _initialized:
-        print("⚠️  Traceloop already initialized")
+        print("⚠️  Agora telemetry already initialized")
         return
 
     # Configure environment
@@ -95,6 +97,57 @@ def init_traceloop(
 
         processors.append(SimpleSpanProcessor(JSONFileExporter(export_to_file)))
 
+    if enable_cloud_upload and SUPABASE_UPLOADER_AVAILABLE:
+        from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
+        from opentelemetry.sdk.trace import ReadableSpan
+        from typing import Sequence
+        import json
+
+        class SupabaseSpanExporter(SpanExporter):
+            def export(self, spans: Sequence[ReadableSpan]) -> SpanExportResult:
+                global cloud_uploader
+                if not cloud_uploader or not cloud_uploader.enabled or not cloud_uploader.execution_id:
+                    return SpanExportResult.SUCCESS
+
+                formatted = []
+                for span in spans:
+                    # Basic span data
+                    formatted.append({
+                        "span_id": format(span.context.span_id, '016x'),
+                        "trace_id": format(span.context.trace_id, '032x'),
+                        "parent_span_id": format(span.parent.span_id, '016x') if span.parent else None,
+                        "name": span.name,
+                        "kind": str(span.kind),
+                        "status": span.status.status_code.name,
+                        "start_time": datetime.fromtimestamp(span.start_time / 1e9).isoformat(),
+                        "end_time": datetime.fromtimestamp(span.end_time / 1e9).isoformat() if span.end_time else None,
+                        "duration_ms": int((span.end_time - span.start_time) / 1e6) if span.end_time else None,
+                        "attributes": dict(span.attributes or {}),
+                        "events": [
+                            {"name": event.name, "timestamp": datetime.fromtimestamp(event.timestamp / 1e9).isoformat(), "attributes": dict(event.attributes or {})}
+                            for event in span.events
+                        ]
+                    })
+
+                if formatted:
+                    # Run async upload in a way that doesn't block
+                    try:
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            loop.create_task(cloud_uploader.add_spans(formatted))
+                        else:
+                            loop.run_until_complete(cloud_uploader.add_spans(formatted))
+                    except Exception as e:
+                        # Fallback for sync contexts
+                        print(f"DEBUG: Internal span export error: {e}")
+
+                return SpanExportResult.SUCCESS
+
+            def shutdown(self):
+                pass
+
+        processors.append(SimpleSpanProcessor(SupabaseSpanExporter()))
+
     # Initialize Traceloop
     Traceloop.init(
         app_name=app_name,
@@ -105,11 +158,16 @@ def init_traceloop(
     tracer = trace.get_tracer("agora_tracer")
 
     if enable_cloud_upload and SUPABASE_UPLOADER_AVAILABLE:
+        print(f"DEBUG: Creating SupabaseUploader for {project_name or app_name}")
         cloud_uploader = SupabaseUploader(
-            project_name=project_name or app_name
+            project_name=project_name or app_name,
+            api_key=api_key
         )
     elif enable_cloud_upload and not SUPABASE_UPLOADER_AVAILABLE:
+        print("DEBUG: SUPABASE_UPLOADER_AVAILABLE is False")
         print("⚠️  Supabase upload not available (install supabase-py: pip install supabase)")
+    else:
+        print(f"DEBUG: Cloud upload disabled (enable_cloud_upload={enable_cloud_upload})")
 
     _initialized = True
     print(f"✅ Traceloop initialized: {app_name}")
@@ -213,7 +271,7 @@ class TracedAsyncNode(AsyncNode):
             start = time.time()
             try:
                 result = await self.prep_async(shared)
-                span.set_attribute("duration_ms", round((time.time() - start) * 1000, 2))
+                span.set_attribute("duration_ms", int((time.time() - start) * 1000))
                 return result
             except Exception as e:
                 span.record_exception(e)
@@ -227,7 +285,7 @@ class TracedAsyncNode(AsyncNode):
             start = time.time()
             try:
                 result = await self.exec_async(prep_res)
-                span.set_attribute("duration_ms", round((time.time() - start) * 1000, 2))
+                span.set_attribute("duration_ms", int((time.time() - start) * 1000))
                 return result
             except Exception as e:
                 span.record_exception(e)
@@ -240,7 +298,7 @@ class TracedAsyncNode(AsyncNode):
             start = time.time()
             try:
                 result = await self.post_async(shared, prep_res, exec_res)
-                span.set_attribute("duration_ms", round((time.time() - start) * 1000, 2))
+                span.set_attribute("duration_ms", int((time.time() - start) * 1000))
                 span.set_attribute("next_action", str(result))
                 return result
             except Exception as e:
@@ -272,7 +330,7 @@ class TracedAsyncNode(AsyncNode):
                 post_res = await self._traced_post(shared, prep_res, exec_res)
                 await self.after_run_async(shared)
                 completed_at = datetime.utcnow()
-                total_duration = round((time.time() - node_start) * 1000, 2)
+                total_duration = int((time.time() - node_start) * 1000)
                 span.set_attribute("total_duration_ms", total_duration)
 
                 if cloud_uploader and cloud_uploader.enabled and cloud_uploader.execution_id:
@@ -315,6 +373,9 @@ class TracedAsyncFlow(AsyncFlow):
                 workflow_name=self.name,
                 input_data=shared.copy() if isinstance(shared, dict) else {}
             )
+            # Register the workflow graph structure (nodes and edges)
+            if hasattr(self, 'to_dict'):
+                cloud_uploader.register_workflow_graph(self.to_dict())
 
         with trace.get_tracer("agora_tracer").start_as_current_span(f"{self.name}.flow") as span:
             span.set_attribute("agora.flow", self.name)
@@ -327,7 +388,8 @@ class TracedAsyncFlow(AsyncFlow):
                 orch_res = await self._orch_async(shared)
                 post_res = await self.post_async(shared, prep_res, orch_res)
                 await self.after_run_async(shared)
-                span.set_attribute("total_duration_ms", round((time.time() - flow_start) * 1000, 2))
+                total_duration = int((time.time() - flow_start) * 1000)
+                span.set_attribute("total_duration_ms", total_duration)
 
                 if cloud_uploader and cloud_uploader.enabled:
                     await cloud_uploader.complete_execution(
@@ -348,9 +410,13 @@ class TracedAsyncFlow(AsyncFlow):
                 return await self.on_error_async(exc, shared)
 
 
+# Backward compatibility alias
+init_traceloop = init_agora
+
 # Export public API
 __all__ = [
-    'init_traceloop',
+    'init_agora',
+    'init_traceloop',  # Backward compatibility
     'TracedAsyncNode',
     'TracedAsyncFlow',
     'agora_node',  # Decorator for wrapping functions
