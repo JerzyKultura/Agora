@@ -44,46 +44,67 @@ export default function WorkflowGraph({ nodes = [], edges = [], onNodeClick }: W
                         'text-halign': 'center',
                         'background-color': '#fff',
                         'border-width': 2,
-                        'border-color': '#64748b', // slate-500
-                        'width': 120,
-                        'height': 40,
-                        'padding': '12px',
+                        'border-color': '#475569', // slate-600
+                        'width': 140,
+                        'height': 45,
+                        'padding': '16px',
                         'shape': 'round-rectangle',
-                        'font-size': '12px',
-                        'font-family': 'Inter, sans-serif',
+                        'font-size': '13px',
+                        'font-weight': 600,
+                        'font-family': 'Inter, system-ui, sans-serif',
                         'text-wrap': 'ellipsis',
-                        'text-max-width': '100px'
+                        'text-max-width': '120px',
+                        'color': '#1e293b'
                     }
                 },
                 {
                     selector: 'node[type="start"]',
                     style: {
-                        'border-color': '#10b981', // emerald-500
-                        'background-color': '#f0fdf4'
+                        'border-color': '#059669', // emerald-600
+                        'background-color': '#ecfdf5',
+                        'border-width': 3
+                    }
+                },
+                {
+                    selector: 'node[type="end"]',
+                    style: {
+                        'border-color': '#dc2626', // red-600
+                        'background-color': '#fef2f2',
+                        'border-width': 3
                     }
                 },
                 {
                     selector: 'edge',
                     style: {
-                        'width': 2,
-                        'line-color': '#cbd5e1', // slate-300
-                        'target-arrow-color': '#cbd5e1',
+                        'width': 3,
+                        'line-color': '#94a3b8', // slate-400 (darker than before)
+                        'target-arrow-color': '#94a3b8',
                         'target-arrow-shape': 'triangle',
-                        'curve-style': 'bezier',
+                        'curve-style': 'bezier', // switched to bezier for better visibility
                         'label': 'data(label)',
-                        'font-size': '12px',
+                        'font-size': '11px',
                         'text-background-color': '#fff',
                         'text-background-opacity': 1,
                         'text-background-padding': '4px',
-                        'text-rotation': 'autorotate'
+                        'text-rotation': 'autorotate',
+                        'color': '#64748b'
+                    }
+                },
+                {
+                    selector: 'node:selected',
+                    style: {
+                        'border-color': '#2563eb', // blue-600
+                        'border-width': 4,
+                        'background-color': '#eff6ff'
                     }
                 }
             ],
             layout: {
                 name: 'breadthfirst',
                 directed: true,
-                spacingFactor: 1.5,
-                padding: 50
+                padding: 100,
+                spacingFactor: 1.2,
+                animate: true
             }
         });
 

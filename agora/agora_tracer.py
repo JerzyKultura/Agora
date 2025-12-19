@@ -232,12 +232,21 @@ def agora_node(name=None, max_retries=1, wait=0, capture_io=None):
         # Determine capture_io setting
         should_capture_io = capture_io if capture_io is not None else _capture_io_default
 
+        # Capture the original function's source code
+        try:
+            actual_code = inspect.getsource(func)
+            print(f"DEBUG: Captured code for '{node_name}' ({len(actual_code) if actual_code else 0} chars)")
+        except Exception as e:
+            print(f"DEBUG: Failed to capture code for '{node_name}': {e}")
+            actual_code = None
+
         # Create a custom node class dynamically
         class DecoratedNode(TracedAsyncNode):
             def __init__(self):
                 super().__init__(node_name, max_retries=max_retries, wait=wait)
                 self._wrapped_func = func
                 self._capture_io = should_capture_io
+                self.code = actual_code
 
             async def exec_async(self, prep_res):
                 """
@@ -399,7 +408,8 @@ class TracedAsyncNode(AsyncNode):
                         status="success",
                         started_at=started_at,
                         completed_at=completed_at,
-                        exec_duration_ms=int(total_duration)
+                        exec_duration_ms=int(total_duration),
+                        code=getattr(self, 'code', None)
                     )
 
                 return post_res
@@ -414,7 +424,8 @@ class TracedAsyncNode(AsyncNode):
                         status="error",
                         started_at=started_at,
                         completed_at=completed_at,
-                        error_message=str(exc)
+                        error_message=str(exc),
+                        code=getattr(self, 'code', None)
                     )
 
                 return await self.on_error_async(exc, shared)

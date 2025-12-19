@@ -12,6 +12,13 @@ class BaseNode:
         self.params, self.successors = {}, {}
         self.name = name or f"{self.__class__.__name__}_{id(self)}"
         self.context = None
+        
+        # Capture source code for visualization
+        try:
+            import inspect
+            self.code = inspect.getsource(self.__class__)
+        except Exception:
+            self.code = None
     
     def set_params(self, params): 
         self.params = params
@@ -162,7 +169,11 @@ class Flow(BaseNode):
         def walk(node):
             if id(node) in nodes_seen: return
             nodes_seen.add(id(node))
-            nodes.append({"name": node.name,"type": node.__class__.__name__})
+            nodes.append({
+                "name": node.name,
+                "type": node.__class__.__name__,
+                "code": getattr(node, 'code', None)
+            })
             for action, next_node in node.successors.items():
                 edges.append({"from": node.name,"to": next_node.name,"action": action})
                 walk(next_node)
@@ -197,6 +208,13 @@ class AsyncNode:
         self.name = name or f"{self.__class__.__name__}_{id(self)}"
         self.context = None
         self.max_retries, self.wait = max_retries, wait
+        
+        # Capture source code for visualization
+        try:
+            import inspect
+            self.code = inspect.getsource(self.__class__)
+        except Exception:
+            self.code = None
     
     def set_params(self, params): self.params = params
     def next(self, node, action="default"):
@@ -354,7 +372,11 @@ class AsyncFlow:
         def walk(node):
             if id(node) in nodes_seen: return
             nodes_seen.add(id(node))
-            nodes.append({"name": node.name, "type": node.__class__.__name__})
+            nodes.append({
+                "name": node.name, 
+                "type": node.__class__.__name__,
+                "code": getattr(node, 'code', None)
+            })
             for action, next_node in node.successors.items():
                 edges.append({"from": node.name, "to": next_node.name, "action": action})
                 walk(next_node)
