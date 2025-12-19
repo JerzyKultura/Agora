@@ -40,6 +40,10 @@ class SupabaseUploader:
         self.workflow_id: Optional[str] = None
         self.project_id: Optional[str] = None
         self.organization_id: Optional[str] = None
+        
+        # Batching
+        self.span_buffer: List[Dict[str, Any]] = []
+        self.batch_size = 10
 
         self.enabled = bool(self.supabase_url and self.supabase_key and SUPABASE_AVAILABLE)
 
@@ -56,7 +60,102 @@ class SupabaseUploader:
             if not self.supabase_url or not self.supabase_key:
                 print("⚠️  VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY not set")
 
-    def _get_or_create_org(self) -> Optional[str]:
+    async def _with_retry(self, func, *args, max_retries=3, initial_delay=1, data_to_retry=None, **kwargs):
+        """Execute a function with exponential backoff retry.
+        If data_to_retry is provided, it will attempt to strip missing columns on PGRST204.
+        """
+        delay = initial_delay
+        current_data = data_to_retry
+        
+        for attempt in range(max_retries):
+            try:
+                if asyncio.iscoroutinefunction(func):
+                    return await func(*args, **kwargs)
+                return func(*args, **kwargs)
+            except Exception as e:
+                error_str = str(e)
+                # Check for "Missing Column" error (PGRST204)
+                if "PGRST204" in error_str and current_data is not None:
+                    import re
+                    match = re.search(r"Could not find the '(.+?)' column", error_str)
+                    if match:
+                        missing_col = match.group(1)
+                        print(f"⚠️  Schema Mismatch: Column '{missing_col}' not found. Stripping and retrying...")
+                        
+                        # Strip the missing column from data
+                        if isinstance(current_data, list):
+                            for item in current_data:
+                                if missing_col in item:
+                                    del item[missing_col]
+                        elif isinstance(current_data, dict):
+                            if missing_col in current_data:
+                                del current_data[missing_col]
+                        
+                        # We need to recreate the request builder if we stripped columns
+                        # This is tricky because func is already bound.
+                        # For now, we rely on the caller to use this smartly or we handle it in specific methods.
+                
+                if attempt < max_retries - 1:
+                    # Don't print full error for PGRST204 if we're trying to fix it
+                    if "PGRST204" not in error_str:
+                        print(f"⚠️  Upload attempt {attempt+1} failed ({e}), retrying in {delay}s...")
+                    await asyncio.sleep(delay)
+                    delay *= 2
+                else:
+                    if "PGRST204" in error_str:
+                        print(f"❌  Upload failed: Your database schema is out of sync. Please run the migrations in all_migrations.sql.")
+                    else:
+                        print(f"❌  Upload failed after {max_retries} attempts: {e}")
+        
+        return None
+
+    async def _execute_resilient(self, table_name, data, method="insert", query_params=None):
+        """Execute a Supabase request (insert/update) with resilience against missing columns."""
+        if not self.enabled:
+            return None
+
+        current_data = data
+        max_retries = 3
+        
+        for attempt in range(max_retries):
+            try:
+                if method == "insert":
+                    builder = self.client.table(table_name).insert(current_data)
+                elif method == "update":
+                    builder = self.client.table(table_name).update(current_data)
+                
+                if query_params:
+                    for key, val in query_params.items():
+                        builder = builder.eq(key, val)
+                
+                return builder.execute()
+            except Exception as e:
+                error_str = str(e)
+                if "PGRST204" in error_str:
+                    import re
+                    match = re.search(r"Could not find the '(.+?)' column", error_str)
+                    if match:
+                        missing_col = match.group(1)
+                        # Strip the missing column from data
+                        if isinstance(current_data, list):
+                            for item in current_data:
+                                if missing_col in item:
+                                    del item[missing_col]
+                        elif isinstance(current_data, dict):
+                            if missing_col in current_data:
+                                del current_data[missing_col]
+                        
+                        # Continue to next retry with stripped data
+                        continue
+                
+                # If not PGRST204 or no more retries for other reasons
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2 ** attempt)
+                else:
+                    raise e
+        return None
+
+    async def _get_or_create_org(self) -> Optional[str]:
         """Get the first available organization"""
         if not self.enabled:
             return None
@@ -76,7 +175,7 @@ class SupabaseUploader:
             print(f"⚠️  Failed to get organization: {e}")
             return None
 
-    def _get_or_create_project(self) -> Optional[str]:
+    async def _get_or_create_project(self) -> Optional[str]:
         """Get or create project"""
         if not self.enabled:
             return None
@@ -111,7 +210,7 @@ class SupabaseUploader:
             print(f"⚠️  Failed to get/create project: {e}")
             return None
 
-    def _get_or_create_workflow(self, workflow_name: str) -> Optional[str]:
+    async def _get_or_create_workflow(self, workflow_name: str) -> Optional[str]:
         """Get or create workflow"""
         if not self.enabled or not self.project_id:
             return None
@@ -140,11 +239,8 @@ class SupabaseUploader:
             print(f"⚠️  Failed to get/create workflow: {e}")
             return None
 
-    def _register_node(self, node_name: str, node_type: str = "async_node", description: str = "") -> Optional[str]:
-        """Register a node in the database for the workflow graph.
-        
-        Returns the node ID if successful, None otherwise.
-        """
+    async def _register_node(self, node_name: str, node_type: str = "async_node", description: str = "") -> Optional[str]:
+        """Register a node in the database for the workflow graph."""
         if not self.enabled or not self.workflow_id:
             return None
         
@@ -160,8 +256,8 @@ class SupabaseUploader:
             if result.data:
                 return result.data[0]["id"]
             
-            # Create new node with metadata
-            result = self.client.table("nodes").insert({
+            # Create new node with metadata resiliently
+            result = await self._execute_resilient("nodes", {
                 "workflow_id": self.workflow_id,
                 "name": node_name,
                 "type": node_type,
@@ -169,14 +265,12 @@ class SupabaseUploader:
                     "description": description,
                     "node_type": node_type
                 }
-            }).execute()
-            
-            return result.data[0]["id"]
-        except Exception as e:
-            print(f"⚠️  Failed to register node {node_name}: {e}")
+            }, method="insert")
+            return result.data[0]["id"] if result and result.data else None
+        except Exception:
             return None
 
-    def _register_edge(self, source_node_name: str, target_node_name: str, label: str = "") -> Optional[str]:
+    async def _register_edge(self, source_node_name: str, target_node_name: str, label: str = "") -> Optional[str]:
         """Register an edge (connection) between two nodes.
         
         Returns the edge ID if successful, None otherwise.
@@ -221,25 +315,20 @@ class SupabaseUploader:
             if edge_result.data:
                 return edge_result.data[0]["id"]
             
-            # Create new edge
-            result = self.client.table("edges").insert({
+            # Create new edge resiliently
+            result = await self._execute_resilient("edges", {
                 "workflow_id": self.workflow_id,
                 "from_node_id": source_id,
                 "to_node_id": target_id,
                 "action": label or "default"
-            }).execute()
+            }, method="insert")
             
-            return result.data[0]["id"]
-        except Exception as e:
-            print(f"⚠️  Failed to register edge {source_node_name} -> {target_node_name}: {e}")
+            return result.data[0]["id"] if result and result.data else None
+        except Exception:
             return None
 
-    def register_workflow_graph(self, flow_graph: Dict[str, Any]):
-        """Register the complete workflow graph (nodes and edges) from a flow.to_dict() output.
-        
-        Args:
-            flow_graph: Output from AsyncFlow.to_dict() with 'nodes' and 'edges' keys
-        """
+    async def register_workflow_graph(self, flow_graph: Dict[str, Any]):
+        """Register the complete workflow graph (nodes and edges) from a flow.to_dict() output."""
         if not self.enabled or not self.workflow_id:
             return
         
@@ -249,59 +338,51 @@ class SupabaseUploader:
         # Register all nodes first
         for node in nodes:
             node_name = node.get("name", node) if isinstance(node, dict) else node
-            self._register_node(node_name, node_type="async_node")
+            await self._register_node(node_name)
         
-        # Then register all edges
+        # Register all edges
         for edge in edges:
-            source = edge.get("from", "")
-            target = edge.get("to", "")
-            action = edge.get("action", "")
+            source = edge.get("source")
+            target = edge.get("target")
+            label = edge.get("label", "")
             if source and target:
-                self._register_edge(source, target, action)
+                await self._register_edge(source, target, label)
 
-    async def start_execution(
-        self,
-        workflow_name: str,
-        input_data: Optional[Dict[str, Any]] = None
-    ) -> Optional[str]:
-        """Start a new execution"""
+    async def start_execution(self, workflow_name: str, input_data: Optional[Dict[str, Any]] = None) -> Optional[str]:
+        """Start a new workflow execution"""
         if not self.enabled:
             return None
 
         try:
-            # Setup org, project, workflow
-            # Setup org, project, workflow
+            # 1. Org/Project/Workflow setup
             if not self.project_id:
-                # If we have a forced project ID, use it and skip org check
                 if self.force_project_id:
                     self.project_id = self.force_project_id
                 else:
                     if not self.organization_id:
-                        self.organization_id = self._get_or_create_org()
-                    self.project_id = self._get_or_create_project()
+                        self.organization_id = await self._get_or_create_org()
+                    self.project_id = await self._get_or_create_project()
+            
             if not self.workflow_id:
-                print(f"DEBUG: Getting/Creating Workflow: {workflow_name}")
-                self.workflow_id = self._get_or_create_workflow(workflow_name)
-
+                self.workflow_id = await self._get_or_create_workflow(workflow_name)
+            
             if not self.workflow_id:
-                print("⚠️  Failed to setup workflow - checking permissions...")
                 return None
 
-            print(f"DEBUG: Creating Execution for Workflow: {self.workflow_id}")
-            # Create execution
-            result = self.client.table("executions").insert({
+            # 2. Create execution resiliently
+            result = await self._execute_resilient("executions", {
                 "workflow_id": self.workflow_id,
                 "status": "running",
                 "input_data": input_data or {},
                 "started_at": datetime.utcnow().isoformat()
-            }).execute()
+            }, method="insert")
 
-            self.execution_id = result.data[0]["id"]
-            print(f"✅ Started execution: {self.execution_id}")
-            return self.execution_id
+            if result and result.data:
+                self.execution_id = result.data[0]["id"]
+                return self.execution_id
+            return None
 
-        except Exception as e:
-            print(f"⚠️  Failed to start execution: {e}")
+        except Exception:
             return None
 
     async def complete_execution(
@@ -327,28 +408,41 @@ class SupabaseUploader:
             duration_ms = int((completed_at - started_at.replace(tzinfo=None)).total_seconds() * 1000)
 
             # Update execution
-            self.client.table("executions").update({
+            await self._execute_resilient("executions", {
                 "status": status,
                 "completed_at": completed_at.isoformat(),
                 "duration_ms": duration_ms,
                 "output_data": output_data,
                 "error_message": error_message
-            }).eq("id", self.execution_id).execute()
+            }, method="update", query_params={"id": self.execution_id})
 
+            await self.flush_spans() # Flush any remaining spans
             print(f"✅ Completed execution: {self.execution_id} ({status})")
 
         except Exception as e:
             print(f"⚠️  Failed to complete execution: {e}")
 
+    async def flush_spans(self):
+        """Flush buffered spans to Supabase"""
+        if not self.enabled or not self.span_buffer or not self.execution_id:
+            return
+
+        try:
+            spans_to_upload = self.span_buffer.copy()
+            self.span_buffer = []
+            
+            await self._execute_resilient("telemetry_spans", spans_to_upload, method="insert")
+        except Exception as e:
+            print(f"⚠️  Failed to flush spans: {e}")
+
     async def add_spans(self, spans: List[Dict[str, Any]]):
-        """Add raw telemetry spans"""
+        """Add spans to the buffer"""
         if not self.enabled or not self.execution_id:
             return
 
         try:
-            formatted_spans = []
             for span in spans:
-                formatted_spans.append({
+                self.span_buffer.append({
                     "execution_id": self.execution_id,
                     "span_id": span.get("span_id"),
                     "trace_id": span.get("trace_id"),
@@ -360,15 +454,18 @@ class SupabaseUploader:
                     "end_time": span.get("end_time"),
                     "duration_ms": span.get("duration_ms"),
                     "attributes": span.get("attributes", {}),
-                    "events": span.get("events", [])
+                    "events": span.get("events", []),
+                    "tokens_used": span.get("tokens_used"),
+                    "estimated_cost": span.get("estimated_cost")
                 })
 
-            if formatted_spans:
-                self.client.table("telemetry_spans").insert(formatted_spans).execute()
+            # If buffer exceeds batch size, flush it.
+            if len(self.span_buffer) >= self.batch_size:
+                await self.flush_spans()
         except Exception as e:
-            print(f"⚠️  Failed to add spans: {e}")
+            print(f"⚠️  Failed to add spans to buffer: {e}")
 
-    def add_node_execution(
+    async def add_node_execution(
         self,
         node_name: str,
         node_type: str,
@@ -379,7 +476,9 @@ class SupabaseUploader:
         exec_duration_ms: Optional[int] = None,
         post_duration_ms: Optional[int] = None,
         error_message: Optional[str] = None,
-        retry_count: int = 0
+        retry_count: int = 0,
+        tokens_used: Optional[int] = None,
+        estimated_cost: Optional[float] = None
     ):
         """Add node execution data"""
         if not self.enabled or not self.execution_id or not self.workflow_id:
@@ -387,27 +486,12 @@ class SupabaseUploader:
 
         try:
             # Get or create node
-            node_result = self.client.table("nodes")\
-                .select("id")\
-                .eq("workflow_id", self.workflow_id)\
-                .eq("name", node_name)\
-                .limit(1)\
-                .execute()
+            node_id = await self._register_node(node_name, node_type)
+            if not node_id:
+                return
 
-            if node_result.data:
-                node_id = node_result.data[0]["id"]
-            else:
-                # Create node
-                new_node = self.client.table("nodes").insert({
-                    "workflow_id": self.workflow_id,
-                    "name": node_name,
-                    "type": node_type,
-                    "config": {}
-                }).execute()
-                node_id = new_node.data[0]["id"]
-
-            # Insert node execution
-            self.client.table("node_executions").insert({
+            # Insert node execution resiliently
+            await self._execute_resilient("node_executions", {
                 "execution_id": self.execution_id,
                 "node_id": node_id,
                 "status": status,
@@ -417,11 +501,13 @@ class SupabaseUploader:
                 "exec_duration_ms": exec_duration_ms,
                 "post_duration_ms": post_duration_ms,
                 "error_message": error_message,
-                "retry_count": retry_count
-            }).execute()
+                "retry_count": retry_count,
+                "tokens_used": tokens_used,
+                "estimated_cost": estimated_cost
+            }, method="insert")
 
         except Exception as e:
-            print(f"⚠️  Failed to add node execution: {e}")
+            print(f"⚠️  Failed to add node execution telemetry for '{node_name}': {e}")
 
 
 def create_supabase_uploader(

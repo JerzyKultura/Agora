@@ -11,6 +11,7 @@ import ProjectDetail from './pages/ProjectDetail'
 import Monitoring from './pages/Monitoring'
 import ExecutionDetail from './pages/ExecutionDetail'
 import Settings from './pages/Settings'
+import CostDashboard from './pages/CostDashboard'
 
 function App() {
   const [user, setUser] = useState<User | null>(null)
@@ -48,6 +49,7 @@ function App() {
           <Route path="projects/:projectId" element={<ProjectDetail />} />
           <Route path="monitoring" element={<Monitoring />} />
           <Route path="monitoring/:projectId" element={<Monitoring />} />
+          <Route path="cost" element={<CostDashboard />} />
           <Route path="executions/:executionId" element={<ExecutionDetail />} />
           <Route path="settings" element={<Settings />} />
         </Route>

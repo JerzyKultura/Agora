@@ -1,6 +1,25 @@
 @import "tailwindcss";
 
+:root {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f3f4f6;
+  --text-primary: #111827;
+  --text-secondary: #4b5563;
+  --border-color: #e5e7eb;
+}
+
 body {
-  background-color: #f9fafb;
-  color: #111827;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+@layer components {
+  .card {
+    @apply bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-gray-200 dark:border-slate-700 transition-colors;
+  }
+
+  .text-muted {
+    @apply text-gray-500 dark:text-slate-400;
+  }
 }

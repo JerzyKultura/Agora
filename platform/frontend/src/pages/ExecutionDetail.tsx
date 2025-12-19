@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
+import { supabase } from '../lib/supabase'
 
 interface Execution {
   id: string
@@ -12,6 +13,8 @@ interface Execution {
   error_message: string | null
   input_data: any
   output_data: any
+  tokens_used: number | null
+  estimated_cost: number | null
 }
 
 interface NodeExecution {
@@ -46,14 +49,18 @@ interface Span {
   duration_ms: number | null
   attributes: any
   events: any[]
+  tokens_used?: number | null
+  estimated_cost?: number | null
 }
 
-function TraceRow({ span, allSpans, depth, onSelect, selectedId }: {
+function TraceRow({ span, allSpans, depth, onSelect, selectedId, minStartTime, totalDuration }: {
   span: Span,
   allSpans: Span[],
   depth: number,
   onSelect: (span: Span) => void,
-  selectedId?: string
+  selectedId?: string,
+  minStartTime: number,
+  totalDuration: number
 }) {
   const children = allSpans.filter(s => s.parent_span_id === span.span_id)
   const isSelected = selectedId === span.span_id
@@ -66,7 +73,7 @@ function TraceRow({ span, allSpans, depth, onSelect, selectedId }: {
           }`}
         style={{ paddingLeft: `${depth * 20 + 12}px` }}
       >
-        <div className="flex items-center gap-2 min-w-0 flex-1">
+        <div className="flex items-center gap-2 min-w-0 w-1/3">
           {children.length > 0 ? (
             <span className="text-[10px] text-gray-400">▼</span>
           ) : (
@@ -77,14 +84,26 @@ function TraceRow({ span, allSpans, depth, onSelect, selectedId }: {
           </span>
           {span.kind.includes('SERVER') && (
             <span className="text-[10px] bg-purple-100 text-purple-700 px-1 rounded">server</span>
-          )}
-          {span.attributes['llm.model_name'] && (
-            <span className="text-[10px] bg-green-100 text-green-700 px-1 rounded truncate max-w-[100px]">
-              {span.attributes['llm.model_name']}
-            </span>
+          ) || span.attributes['agora.kind'] === 'node' && (
+            <span className="text-[10px] bg-blue-100 text-blue-700 px-1 rounded">node</span>
           )}
         </div>
-        <div className="text-[10px] text-gray-400 font-mono">
+
+        {/* Waterfall Bar */}
+        <div className="flex-1 h-2 relative min-w-[200px] bg-gray-50 rounded-full overflow-hidden">
+          {span.duration_ms !== null && (
+            <div
+              className={`absolute h-full rounded-full ${span.status === 'ERROR' ? 'bg-red-400' : 'bg-blue-400'
+                }`}
+              style={{
+                left: `${((new Date(span.start_time).getTime() - minStartTime) / totalDuration) * 100}%`,
+                width: `${Math.max((span.duration_ms / totalDuration) * 100, 0.5)}%`
+              }}
+            />
+          )}
+        </div>
+
+        <div className="text-[10px] text-gray-400 font-mono w-16 text-right">
           {span.duration_ms ? `${span.duration_ms}ms` : ''}
         </div>
       </div>
@@ -96,6 +115,8 @@ function TraceRow({ span, allSpans, depth, onSelect, selectedId }: {
           depth={depth + 1}
           onSelect={onSelect}
           selectedId={selectedId}
+          minStartTime={minStartTime}
+          totalDuration={totalDuration}
         />
       ))}
     </div>
@@ -115,6 +136,43 @@ export default function ExecutionDetail() {
 
   useEffect(() => {
     loadExecutionData()
+
+    // Subscribe to realtime updates for this execution
+    const nodeExecsChannel = supabase
+      .channel(`node_executions_${executionId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'node_executions',
+        filter: `execution_id=eq.${executionId}`
+      }, () => loadExecutionData())
+      .subscribe()
+
+    const spansChannel = supabase
+      .channel(`spans_${executionId}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'telemetry_spans',
+        filter: `execution_id=eq.${executionId}`
+      }, () => loadExecutionData())
+      .subscribe()
+
+    const execChannel = supabase
+      .channel(`execution_${executionId}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'executions',
+        filter: `id=eq.${executionId}`
+      }, () => loadExecutionData())
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(nodeExecsChannel)
+      supabase.removeChannel(spansChannel)
+      supabase.removeChannel(execChannel)
+    }
   }, [executionId])
 
   const loadExecutionData = async () => {
@@ -236,14 +294,21 @@ export default function ExecutionDetail() {
       {activeTab === 'timeline' && (
         <div className="bg-white rounded-lg shadow overflow-hidden">
           {nodeExecutions.length === 0 ? (
-            <div className="p-8 text-center text-gray-500">
-              No node executions recorded
+            <div className="p-12 text-center">
+              {execution.status === 'running' ? (
+                <div className="flex flex-col items-center gap-4">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                  <div className="text-gray-500">Waiting for node executions... Data will appear as nodes complete.</div>
+                </div>
+              ) : (
+                <div className="text-gray-500">No node executions recorded for this run.</div>
+              )}
             </div>
           ) : (
             <div className="p-6">
               <h2 className="text-lg font-semibold mb-4">Node Execution Timeline</h2>
               <div className="space-y-4">
-                {nodeExecutions.map((nodeExec, index) => (
+                {nodeExecutions.map((nodeExec: NodeExecution, index: number) => (
                   <div key={nodeExec.id} className="border-l-4 border-blue-500 pl-4 py-2">
                     <div className="flex justify-between items-start">
                       <div>
@@ -295,25 +360,55 @@ export default function ExecutionDetail() {
       {activeTab === 'trace' && (
         <div className="grid grid-cols-12 gap-6">
           <div className="col-span-12 lg:col-span-8 bg-white rounded-lg shadow overflow-hidden">
-            <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-              <h3 className="font-semibold text-gray-700">Trace Tree</h3>
-              <span className="text-xs text-gray-500">{spans.length} spans</span>
+            <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 dark:bg-slate-800 dark:border-slate-700">
+              <h3 className="font-semibold text-gray-700 dark:text-gray-200">Trace Tree</h3>
+              <div className="flex gap-2 items-center">
+                <button
+                  onClick={() => {
+                    const blob = new Blob([JSON.stringify(spans, null, 2)], { type: 'application/json' })
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = `trace-${executionId}.json`
+                    a.click()
+                  }}
+                  className="text-xs bg-white dark:bg-slate-700 border border-gray-200 dark:border-slate-600 px-2 py-1 rounded hover:bg-gray-50 dark:hover:bg-slate-600 transition text-gray-600 dark:text-gray-300"
+                >
+                  Export JSON
+                </button>
+                <span className="text-xs text-gray-500">{spans.length} spans</span>
+              </div>
             </div>
             <div className="p-4 overflow-x-auto">
               <div className="min-w-max">
-                {spans.filter(s => !s.parent_span_id).map(span => (
-                  <TraceRow
-                    key={span.span_id}
-                    span={span}
-                    allSpans={spans}
-                    depth={0}
-                    onSelect={setSelectedSpan}
-                    selectedId={selectedSpan?.span_id}
-                  />
-                ))}
+                {(() => {
+                  const minStartTime = Math.min(...spans.map((s: Span) => new Date(s.start_time).getTime()))
+                  const maxEndTime = Math.max(...spans.map((s: Span) => new Date(s.end_time || s.start_time).getTime()))
+                  const totalDuration = Math.max(maxEndTime - minStartTime, 1)
+
+                  return spans.filter((s: Span) => !s.parent_span_id || !spans.find((parent: Span) => parent.span_id === s.parent_span_id)).map((span: Span) => (
+                    <TraceRow
+                      key={span.span_id}
+                      span={span}
+                      allSpans={spans}
+                      depth={0}
+                      onSelect={setSelectedSpan}
+                      selectedId={selectedSpan?.span_id}
+                      minStartTime={minStartTime}
+                      totalDuration={totalDuration}
+                    />
+                  ))
+                })()}
                 {spans.length === 0 && (
-                  <div className="p-8 text-center text-gray-500">
-                    No span data found. Make sure opentelemetry is correctly configured.
+                  <div className="p-12 text-center">
+                    {execution.status === 'running' ? (
+                      <div className="flex flex-col items-center gap-4">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                        <div className="text-gray-500">Waiting for spans... Data is uploaded in batches.</div>
+                      </div>
+                    ) : (
+                      <div className="text-gray-500">No span data found. Make sure Agora is correctly initialized.</div>
+                    )}
                   </div>
                 )}
               </div>
@@ -334,6 +429,22 @@ export default function ExecutionDetail() {
                       }`}>
                       {selectedSpan.status}
                     </span>
+                  </div>
+                  <div>
+                    <div className="text-xs text-gray-500 uppercase font-bold">Usage</div>
+                    <div className="flex gap-2 mt-1">
+                      {selectedSpan.tokens_used && (
+                        <span className="text-xs bg-gray-100 px-2 py-0.5 rounded font-mono">
+                          {selectedSpan.tokens_used} tokens
+                        </span>
+                      )}
+                      {selectedSpan.estimated_cost && (
+                        <span className="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded font-mono">
+                          ${selectedSpan.estimated_cost.toFixed(4)}
+                        </span>
+                      )}
+                      {!selectedSpan.tokens_used && !selectedSpan.estimated_cost && <span className="text-xs text-gray-400">N/A</span>}
+                    </div>
                   </div>
                   <div>
                     <div className="text-xs text-gray-500 uppercase font-bold mb-1">Attributes</div>
@@ -377,7 +488,7 @@ export default function ExecutionDetail() {
               <div className="text-sm text-gray-500">Success Rate</div>
               <div className="text-2xl font-bold text-green-600">
                 {nodeExecutions.length > 0
-                  ? Math.round((nodeExecutions.filter(n => n.status === 'success').length / nodeExecutions.length) * 100)
+                  ? Math.round((nodeExecutions.filter((n: NodeExecution) => n.status === 'success').length / nodeExecutions.length) * 100)
                   : 0}%
               </div>
             </div>
@@ -387,7 +498,7 @@ export default function ExecutionDetail() {
                 {nodeExecutions.length > 0
                   ? formatDuration(
                     Math.round(
-                      nodeExecutions.reduce((acc, n) => acc + (n.exec_duration_ms || 0), 0) / nodeExecutions.length
+                      nodeExecutions.reduce((acc: number, n: NodeExecution) => acc + (n.exec_duration_ms || 0), 0) / nodeExecutions.length
                     )
                   )
                   : '-'}
@@ -396,7 +507,19 @@ export default function ExecutionDetail() {
             <div>
               <div className="text-sm text-gray-500">Total Retries</div>
               <div className="text-2xl font-bold text-yellow-600">
-                {nodeExecutions.reduce((acc, n) => acc + n.retry_count, 0)}
+                {nodeExecutions.reduce((acc: number, n: NodeExecution) => acc + n.retry_count, 0)}
+              </div>
+            </div>
+            <div>
+              <div className="text-sm text-gray-500">Total Tokens</div>
+              <div className="text-2xl font-bold text-blue-600">
+                {execution.tokens_used?.toLocaleString() || '-'}
+              </div>
+            </div>
+            <div>
+              <div className="text-sm text-gray-500">Total Cost</div>
+              <div className="text-2xl font-bold text-green-600">
+                {execution.estimated_cost ? `$${execution.estimated_cost.toFixed(4)}` : '-'}
               </div>
             </div>
           </div>

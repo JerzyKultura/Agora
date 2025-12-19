@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
+import { supabase } from '../lib/supabase'
 
 interface Execution {
   id: string
@@ -10,6 +11,10 @@ interface Execution {
   completed_at: string | null
   duration_ms: number | null
   error_message: string | null
+  tokens_used: number | null
+  estimated_cost: number | null
+  input_data: any | null
+  output_data: any | null
 }
 
 interface Workflow {
@@ -32,11 +37,25 @@ export default function Monitoring() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<string>('all')
+  const [searchTerm, setSearchTerm] = useState<string>('')
+  const [workflowFilter, setWorkflowFilter] = useState<string>('all')
 
   useEffect(() => {
     loadExecutions()
-    const interval = setInterval(loadExecutions, 5000)
-    return () => clearInterval(interval)
+
+    // Subscribe to all execution changes for this project (or all if no project)
+    const channel = supabase
+      .channel('monitoring_executions')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'executions'
+      }, () => loadExecutions())
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
   }, [projectId, filter])
 
   const loadExecutions = async () => {
@@ -128,24 +147,30 @@ export default function Monitoring() {
     return date.toLocaleString()
   }
 
-  if (loading) {
+  const filteredExecutions = executions.filter(execution => {
+    const matchesSearch = execution.id.toLowerCase().includes(searchTerm.toLowerCase())
+    const matchesWorkflow = workflowFilter === 'all' || execution.workflow_id === workflowFilter
+    return matchesSearch && matchesWorkflow
+  })
+
+  if (loading && executions.length === 0) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-gray-500">Loading executions...</div>
+      <div className="flex justify-center items-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
       </div>
     )
   }
 
-  if (error) {
+  if (error && executions.length === 0) {
     return (
-      <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-6">
-        <p className="font-bold">Error Loading Data</p>
+      <div className="bg-red-50 border border-red-200 text-red-700 px-6 py-4 rounded-lg">
+        <h3 className="font-bold mb-1">Error Loading Monitoring Data</h3>
         <p>{error}</p>
         <button
-          onClick={() => window.location.reload()}
-          className="mt-2 text-sm underline hover:text-red-800"
+          onClick={() => loadExecutions()}
+          className="mt-4 px-4 py-2 bg-red-100 hover:bg-red-200 rounded-md transition-colors"
         >
-          Reload Page
+          Try Again
         </button>
       </div>
     )
@@ -154,8 +179,33 @@ export default function Monitoring() {
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Monitoring</h1>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-3">
+          <h1 className="text-3xl font-bold text-gray-900">Monitoring</h1>
+          <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-[10px] font-bold uppercase tracking-wider animate-pulse">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+            Live
+          </span>
+        </div>
+        <div className="flex flex-wrap gap-4 items-center">
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Search Execution ID..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 w-64"
+            />
+          </div>
+          <select
+            value={workflowFilter}
+            onChange={(e) => setWorkflowFilter(e.target.value)}
+            className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="all">All Workflows</option>
+            {Array.from(workflows.values()).map(w => (
+              <option key={w.id} value={w.id}>{w.name}</option>
+            ))}
+          </select>
           <select
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
@@ -165,12 +215,11 @@ export default function Monitoring() {
             <option value="running">Running</option>
             <option value="success">Success</option>
             <option value="error">Error</option>
-            <option value="timeout">Timeout</option>
           </select>
         </div>
       </div>
 
-      {executions.length === 0 ? (
+      {filteredExecutions.length === 0 ? (
         <div className="bg-white rounded-lg shadow p-8 text-center">
           <div className="text-6xl mb-4">🚀</div>
           <h3 className="text-xl font-semibold text-gray-800 mb-2">No Execution Data Yet</h3>
@@ -201,14 +250,18 @@ python demo_workflow.py`}
               <tr>
                 {!projectId && <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Project</th>}
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Workflow</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Context</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Input Preview</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Started</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Duration</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tokens</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cost</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {executions.map((execution) => {
+              {filteredExecutions.map((execution) => {
                 const workflow = workflows.get(execution.workflow_id)
                 const project = workflow ? projects.get(workflow.project_id) : null
                 return (
@@ -220,24 +273,29 @@ python demo_workflow.py`}
                         </div>
                       </td>
                     )}
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">
-                        {workflow?.name || 'Unknown'}
-                      </div>
-                      <div className="text-sm text-gray-500">
-                        {execution.id.substring(0, 8)}...
-                      </div>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <div className="font-medium">{workflow?.name || 'Unknown'}</div>
+                      <div className="text-xs text-gray-400 font-mono">{execution.id.substring(0, 8)}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(execution.status)}`}>
+                      <span className={`px-2 inline-flex text-[10px] leading-4 font-bold rounded-full uppercase tracking-wider ${getStatusColor(execution.status)}`}>
                         {execution.status}
                       </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-500 font-mono italic max-w-xs truncate">
+                      {execution.input_data ? JSON.stringify(execution.input_data).substring(0, 40) + '...' : '-'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {formatDate(execution.started_at)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {formatDuration(execution.duration_ms)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {execution.tokens_used?.toLocaleString() || '-'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {execution.estimated_cost ? `$${execution.estimated_cost.toFixed(4)}` : '-'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <button
