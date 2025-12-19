@@ -48,17 +48,21 @@ export default function ProjectDetail() {
           // It calls `add_node_execution` but seemingly not `add_edge`.
           // Let's assume nodes exist. If edges are missing, we might only see nodes.
 
+          const nodeIds = new Set(nodes.map((n: any) => n.id))
+
           const transformedNodes = nodes.map((n: any) => ({
             id: n.id,
             label: n.name,
             type: n.type === 'start' ? 'start' : n.type === 'end' ? 'end' : 'process'
           }))
 
-          const transformedEdges = edges.map((e: any) => ({
-            source: e.from_node_id,
-            target: e.to_node_id,
-            label: e.action || ''
-          }))
+          const transformedEdges = edges
+            .filter((e: any) => nodeIds.has(e.from_node_id) && nodeIds.has(e.to_node_id))
+            .map((e: any) => ({
+              source: e.from_node_id,
+              target: e.to_node_id,
+              label: e.action || ''
+            }))
 
           setGraphNodes(transformedNodes)
           setGraphEdges(transformedEdges)

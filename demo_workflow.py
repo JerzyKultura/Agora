@@ -15,10 +15,6 @@ Setup:
 
 import asyncio
 import os
-from dotenv import load_dotenv
-
-# Load env vars from .env file
-load_dotenv()
 
 from agora.agora_tracer import (
     TracedAsyncFlow,
@@ -26,29 +22,13 @@ from agora.agora_tracer import (
     agora_node,
 )
 
-# Check for Supabase configuration
-SUPABASE_URL = os.environ.get("VITE_SUPABASE_URL", "")
-SUPABASE_KEY = os.environ.get("VITE_SUPABASE_ANON_KEY", "")
-
-if not SUPABASE_URL or not SUPABASE_KEY:
-    print("⚠️  Supabase credentials not found!")
-    print("Set them with:")
-    print("  export VITE_SUPABASE_URL='https://your-project.supabase.co'")
-    print("  export VITE_SUPABASE_ANON_KEY='your-anon-key'")
-    print("\nRunning in local mode (no cloud sync)...\n")
-    enable_upload = False
-else:
-    print(f"✅ Cloud upload enabled to Supabase\n")
-    print(f"URL: {SUPABASE_URL}\n")
-    enable_upload = True
-
-# Initialize Agora telemetry
+# One-line setup!
+# Auto-detects Supabase credentials and AGORA_API_KEY from .env
 init_agora(
-    app_name="demo_workflow",
-    export_to_console=True,
-    export_to_file="demo_traces.jsonl",
-    enable_cloud_upload=enable_upload,
-    project_name="Demo Project"
+    app_name="agora-demo", 
+    project_name="Demo Project",
+    export_to_console=False, 
+    export_to_file="demo_traces.jsonl"
 )
 
 
@@ -129,16 +109,11 @@ async def run_demo():
     print(flow.to_mermaid())
     print()
 
-    if SUPABASE_URL and SUPABASE_KEY:
-        print("="*60)
-        print("✓ Telemetry sent to Supabase!")
-        print("View your workflow execution in your platform's Monitoring page")
-        print("="*60)
-    else:
-        print("="*60)
-        print("ℹ️  Local telemetry saved to: demo_traces.jsonl")
-        print("Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to sync with cloud")
-        print("="*60)
+    print()
+    print("="*60)
+    print("✓ Workflow execution finished!")
+    print("View your workflow execution in your platform's Monitoring page")
+    print("="*60)
 
 
 if __name__ == "__main__":

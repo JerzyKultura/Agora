@@ -348,6 +348,8 @@ CREATE TABLE IF NOT EXISTS executions (
   error_message text,
   input_data jsonb,
   output_data jsonb,
+  tokens_used integer,
+  estimated_cost numeric,
   created_at timestamptz DEFAULT now()
 );
 
@@ -383,6 +385,8 @@ CREATE TABLE IF NOT EXISTS node_executions (
   post_result jsonb,
   error_message text,
   retry_count integer DEFAULT 0,
+  tokens_used integer,
+  estimated_cost numeric,
   created_at timestamptz DEFAULT now()
 );
 
@@ -446,6 +450,8 @@ CREATE TABLE IF NOT EXISTS telemetry_spans (
   duration_ms numeric,
   attributes jsonb DEFAULT '{}',
   events jsonb DEFAULT '[]',
+  tokens_used integer,
+  estimated_cost numeric,
   created_at timestamptz DEFAULT now()
 );
 
@@ -573,6 +579,15 @@ BEGIN
   VALUES (NEW.id, NEW.email)
   ON CONFLICT (id) DO NOTHING;
 
+  -- Ensure columns exist even if tables were already created
+ALTER TABLE executions ADD COLUMN IF NOT EXISTS tokens_used integer;
+ALTER TABLE executions ADD COLUMN IF NOT EXISTS estimated_cost numeric;
+
+ALTER TABLE node_executions ADD COLUMN IF NOT EXISTS tokens_used integer;
+ALTER TABLE node_executions ADD COLUMN IF NOT EXISTS estimated_cost numeric;
+
+ALTER TABLE telemetry_spans ADD COLUMN IF NOT EXISTS tokens_used integer;
+ALTER TABLE telemetry_spans ADD COLUMN IF NOT EXISTS estimated_cost numeric;
   -- Create organization for user
   INSERT INTO organizations (name)
   VALUES (COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.email) || '''s Organization')

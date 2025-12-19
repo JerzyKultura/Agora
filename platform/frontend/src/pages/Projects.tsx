@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
-import { Plus, FolderKanban } from 'lucide-react'
+import { Plus, FolderKanban, Activity } from 'lucide-react'
 
 export default function Projects() {
   const [projects, setProjects] = useState<any[]>([])
@@ -15,8 +15,33 @@ export default function Projects() {
 
   const loadProjects = async () => {
     try {
-      const data = await api.projects.list()
-      setProjects(data)
+      const projectsData = await api.projects.list()
+
+      // Fetch stats for projects (using a separate query or join if possible, 
+      // but for now we'll just do it in a simple map)
+      const projectsWithStats = await Promise.all(projectsData.map(async (project: any) => {
+        const workflows = await api.workflows.list(project.id)
+
+        let lastRun = null
+        if (workflows.length > 0) {
+          const allExecs = await Promise.all(workflows.map(w =>
+            api.executions.list({ workflow_id: w.id, limit: 1 })
+          ))
+          const flatExecs = allExecs.flat().filter(e => e.started_at)
+          if (flatExecs.length > 0) {
+            flatExecs.sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())
+            lastRun = flatExecs[0].started_at
+          }
+        }
+
+        return {
+          ...project,
+          workflowCount: workflows.length,
+          lastRun
+        }
+      }))
+
+      setProjects(projectsWithStats)
     } catch (error) {
       console.error('Failed to load projects:', error)
     } finally {
@@ -82,8 +107,15 @@ export default function Projects() {
               </div>
               <h3 className="text-lg font-semibold text-gray-900 mb-2">{project.name}</h3>
               {project.description && (
-                <p className="text-sm text-gray-600 line-clamp-2">{project.description}</p>
+                <p className="text-sm text-gray-600 line-clamp-2 mb-4">{project.description}</p>
               )}
+              <div className="flex items-center gap-2 mt-auto pt-4 border-t border-gray-50 text-sm text-gray-500">
+                <Activity size={16} className="text-blue-500" />
+                <span>{project.workflowCount || 0} Workflows</span>
+                <span className="ml-auto text-gray-400">
+                  {project.lastRun ? `Last run: ${new Date(project.lastRun).toLocaleDateString()}` : 'Never run'}
+                </span>
+              </div>
             </Link>
           ))}
         </div>

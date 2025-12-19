@@ -22,6 +22,10 @@ from traceloop.sdk import Traceloop
 from agora import AsyncNode, AsyncFlow, AsyncBatchNode, AsyncParallelBatchNode
 import os, time, asyncio, inspect, functools
 from datetime import datetime
+from typing import Optional, Sequence, Any, List, Dict
+import json
+from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
+from opentelemetry.sdk.trace import ReadableSpan
 
 try:
     from agora.supabase_uploader import SupabaseUploader
@@ -33,33 +37,45 @@ except ImportError:
 _initialized = False
 tracer = None
 cloud_uploader = None
+_sampling_rate = 1.0  # 1.0 = trace everything, 0.5 = trace 50%
+_capture_io_default = False  # Whether to capture input/output by default
+
+import random
 
 def init_agora(
-    app_name="agora_app",
-    export_to_console=True,
-    export_to_file=None,
-    disable_content_logging=True,
-    enable_cloud_upload=True,
-    project_name=None,
-    api_key=None
+    app_name: str = "agora-app",
+    export_to_console: bool = False,
+    export_to_file: Optional[str] = None,
+    disable_content_logging: bool = True,
+    enable_cloud_upload: bool = True,
+    project_name: Optional[str] = None,
+    api_key: Optional[str] = None,
+    sampling_rate: float = 1.0,
+    capture_io: bool = False,
+    supabase_url: Optional[str] = None,
+    supabase_key: Optional[str] = None
 ):
     """
-    Initialize Agora telemetry system.
-
-    Args:
-        app_name: Name of your application
-        export_to_console: Print spans to console (default: True)
-        export_to_file: Path to JSONL file for export (default: None)
-        disable_content_logging: Don't log prompt/response content (default: True)
-        enable_cloud_upload: Upload telemetry to Supabase (default: True)
-        project_name: Project name for Supabase (default: app_name)
-        api_key: Optional API key for authentication
+    Initialize Agora telemetry system. One-line setup!
+    
+    If VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are in your .env, 
+    they will be auto-detected.
     """
-    global _initialized, tracer, cloud_uploader
+    global _initialized, tracer, cloud_uploader, _sampling_rate, _capture_io_default
 
     if _initialized:
-        print("⚠️  Agora telemetry already initialized")
         return
+
+    # Try to load .env file
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
+
+    # Set global config
+    _sampling_rate = sampling_rate
+    _capture_io_default = capture_io
 
     # Configure environment
     if disable_content_logging:
@@ -74,11 +90,6 @@ def init_agora(
         processors.append(SimpleSpanProcessor(ConsoleSpanExporter()))
 
     if export_to_file:
-        from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
-        from opentelemetry.sdk.trace import ReadableSpan
-        from typing import Sequence
-        import json
-        from datetime import datetime
 
         class JSONFileExporter(SpanExporter):
             def __init__(self, path):
@@ -98,10 +109,6 @@ def init_agora(
         processors.append(SimpleSpanProcessor(JSONFileExporter(export_to_file)))
 
     if enable_cloud_upload and SUPABASE_UPLOADER_AVAILABLE:
-        from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
-        from opentelemetry.sdk.trace import ReadableSpan
-        from typing import Sequence
-        import json
 
         class SupabaseSpanExporter(SpanExporter):
             def export(self, spans: Sequence[ReadableSpan]) -> SpanExportResult:
@@ -111,6 +118,17 @@ def init_agora(
 
                 formatted = []
                 for span in spans:
+                    attrs = dict(span.attributes or {})
+                    
+                    # Extract usage metrics if available (standard OTel / Traceloop attrs)
+                    tokens = attrs.get("llm.usage.total_tokens") or \
+                             attrs.get("traceloop.usage.total_tokens") or \
+                             attrs.get("usage.total_tokens")
+                    
+                    cost = attrs.get("traceloop.cost.usd") or \
+                           attrs.get("llm.usage.cost") or \
+                           attrs.get("usage.cost")
+
                     # Basic span data
                     formatted.append({
                         "span_id": format(span.context.span_id, '016x'),
@@ -122,7 +140,9 @@ def init_agora(
                         "start_time": datetime.fromtimestamp(span.start_time / 1e9).isoformat(),
                         "end_time": datetime.fromtimestamp(span.end_time / 1e9).isoformat() if span.end_time else None,
                         "duration_ms": int((span.end_time - span.start_time) / 1e6) if span.end_time else None,
-                        "attributes": dict(span.attributes or {}),
+                        "attributes": attrs,
+                        "tokens_used": int(tokens) if tokens is not None else None,
+                        "estimated_cost": float(cost) if cost is not None else None,
                         "events": [
                             {"name": event.name, "timestamp": datetime.fromtimestamp(event.timestamp / 1e9).isoformat(), "attributes": dict(event.attributes or {})}
                             for event in span.events
@@ -136,9 +156,10 @@ def init_agora(
                         if loop.is_running():
                             loop.create_task(cloud_uploader.add_spans(formatted))
                         else:
-                            loop.run_until_complete(cloud_uploader.add_spans(formatted))
+                            # If no loop is running, we can't easily wait for async in a sync context
+                            # without potentially blocking. However, for a simple script, we can run it.
+                            asyncio.run(cloud_uploader.add_spans(formatted))
                     except Exception as e:
-                        # Fallback for sync contexts
                         print(f"DEBUG: Internal span export error: {e}")
 
                 return SpanExportResult.SUCCESS
@@ -177,7 +198,7 @@ def init_agora(
 # DECORATOR - Wrap functions into TracedAsyncNode
 # ==============================================================
 
-def agora_node(name=None, max_retries=1, wait=0):
+def agora_node(name=None, max_retries=1, wait=0, capture_io=None):
     """
     Decorator to convert any function into a TracedAsyncNode.
     This allows you to wrap existing functions without subclassing.
@@ -197,6 +218,7 @@ def agora_node(name=None, max_retries=1, wait=0):
         name: Optional node name (defaults to function name)
         max_retries: Number of retry attempts (default: 1)
         wait: Wait time between retries in seconds (default: 0)
+        capture_io: Whether to log input/output in spans (default: use global setting)
     Returns:
         TracedAsyncNode instance with your function as exec_async
     """
@@ -206,12 +228,16 @@ def agora_node(name=None, max_retries=1, wait=0):
 
         # Check if function is async or sync
         is_async = inspect.iscoroutinefunction(func)
+        
+        # Determine capture_io setting
+        should_capture_io = capture_io if capture_io is not None else _capture_io_default
 
         # Create a custom node class dynamically
         class DecoratedNode(TracedAsyncNode):
             def __init__(self):
                 super().__init__(node_name, max_retries=max_retries, wait=wait)
                 self._wrapped_func = func
+                self._capture_io = should_capture_io
 
             async def exec_async(self, prep_res):
                 """
@@ -283,9 +309,29 @@ class TracedAsyncNode(AsyncNode):
             span.set_attribute("agora.phase", "exec")
             span.set_attribute("retry_count", retry_count)
             start = time.time()
+            
+            # Capture input if enabled
+            if getattr(self, '_capture_io', _capture_io_default):
+                try:
+                    import json
+                    input_str = json.dumps(prep_res, default=str)[:1000]  # Limit to 1000 chars
+                    span.set_attribute("input", input_str)
+                except:
+                    span.set_attribute("input", str(prep_res)[:1000])
+            
             try:
                 result = await self.exec_async(prep_res)
                 span.set_attribute("duration_ms", int((time.time() - start) * 1000))
+                
+                # Capture output if enabled
+                if getattr(self, '_capture_io', _capture_io_default):
+                    try:
+                        import json
+                        output_str = json.dumps(result, default=str)[:1000]
+                        span.set_attribute("output", output_str)
+                    except:
+                        span.set_attribute("output", str(result)[:1000])
+                
                 return result
             except Exception as e:
                 span.record_exception(e)
@@ -317,6 +363,19 @@ class TracedAsyncNode(AsyncNode):
 
     async def _run_async(self, shared):
         global cloud_uploader
+        
+        # Sampling: skip tracing if sampling rate check fails
+        if random.random() > _sampling_rate:
+            # Run without tracing
+            await self.before_run_async(shared)
+            try:
+                prep_res = await self.prep_async(shared)
+                exec_res = await self.exec_async(prep_res)
+                post_res = await self.post_async(shared, prep_res, exec_res)
+                await self.after_run_async(shared)
+                return post_res
+            except Exception as exc:
+                return await self.on_error_async(exc, shared)
 
         with trace.get_tracer("agora_tracer").start_as_current_span(f"{self.name}.node") as span:
             span.set_attribute("agora.node", self.name)
@@ -334,7 +393,7 @@ class TracedAsyncNode(AsyncNode):
                 span.set_attribute("total_duration_ms", total_duration)
 
                 if cloud_uploader and cloud_uploader.enabled and cloud_uploader.execution_id:
-                    cloud_uploader.add_node_execution(
+                    await cloud_uploader.add_node_execution(
                         node_name=self.name,
                         node_type="async_node",
                         status="success",
@@ -349,7 +408,7 @@ class TracedAsyncNode(AsyncNode):
                 completed_at = datetime.utcnow()
 
                 if cloud_uploader and cloud_uploader.enabled and cloud_uploader.execution_id:
-                    cloud_uploader.add_node_execution(
+                    await cloud_uploader.add_node_execution(
                         node_name=self.name,
                         node_type="async_node",
                         status="error",
@@ -366,6 +425,19 @@ class TracedAsyncFlow(AsyncFlow):
 
     async def _run_async(self, shared):
         global cloud_uploader
+        
+        # Sampling: skip tracing if sampling rate check fails
+        if random.random() > _sampling_rate:
+            # Run without tracing
+            await self.before_run_async(shared)
+            try:
+                prep_res = await self.prep_async(shared)
+                orch_res = await self._orch_async(shared)
+                post_res = await self.post_async(shared, prep_res, orch_res)
+                await self.after_run_async(shared)
+                return post_res
+            except Exception as exc:
+                return await self.on_error_async(exc, shared)
 
         execution_id = None
         if cloud_uploader and cloud_uploader.enabled:
@@ -375,7 +447,7 @@ class TracedAsyncFlow(AsyncFlow):
             )
             # Register the workflow graph structure (nodes and edges)
             if hasattr(self, 'to_dict'):
-                cloud_uploader.register_workflow_graph(self.to_dict())
+                await cloud_uploader.register_workflow_graph(self.to_dict())
 
         with trace.get_tracer("agora_tracer").start_as_current_span(f"{self.name}.flow") as span:
             span.set_attribute("agora.flow", self.name)
