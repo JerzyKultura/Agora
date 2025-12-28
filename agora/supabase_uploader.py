@@ -7,7 +7,7 @@ This uploads telemetry data directly to Supabase from your Python scripts.
 import os
 import asyncio
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 
 try:
@@ -52,6 +52,9 @@ class SupabaseUploader:
             print(f"✅ Supabase uploader enabled for project: {self.project_name}")
             if self.force_project_id:
                 print(f"DEBUG: Using forced Project ID: {self.force_project_id}")
+            if self.api_key:
+                masked_key = f"{self.api_key[:4]}...{self.api_key[-4:]}" if len(self.api_key) > 8 else "***"
+                print(f"🔑 Agora API Key verified: {masked_key}")
         else:
             self.client = None
             print(f"DEBUG: SupabaseUploader NOT enabled. URL={bool(self.supabase_url)}, Key={bool(self.supabase_key)}, Lib={SUPABASE_AVAILABLE}")
@@ -382,7 +385,7 @@ class SupabaseUploader:
                 "workflow_id": self.workflow_id,
                 "status": "running",
                 "input_data": input_data or {},
-                "started_at": datetime.utcnow().isoformat()
+                "started_at": datetime.now(timezone.utc).isoformat()
             }, method="insert")
 
             if result and result.data:
@@ -411,9 +414,18 @@ class SupabaseUploader:
                 .single()\
                 .execute()
 
-            started_at = datetime.fromisoformat(exec_result.data["started_at"].replace("Z", "+00:00"))
-            completed_at = datetime.utcnow()
-            duration_ms = int((completed_at - started_at.replace(tzinfo=None)).total_seconds() * 1000)
+            # Parse started_at and ensure it's timezone-aware
+            started_at_str = exec_result.data["started_at"]
+            if started_at_str.endswith('Z'):
+                started_at_str = started_at_str[:-1] + '+00:00'
+            started_at = datetime.fromisoformat(started_at_str)
+            
+            # Ensure started_at is timezone-aware
+            if started_at.tzinfo is None:
+                started_at = started_at.replace(tzinfo=timezone.utc)
+            
+            completed_at = datetime.now(timezone.utc)
+            duration_ms = int((completed_at - started_at).total_seconds() * 1000)
 
             # Update execution
             await self._execute_resilient("executions", {
