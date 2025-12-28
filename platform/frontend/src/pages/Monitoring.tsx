@@ -244,7 +244,7 @@ python demo_workflow.py`}
           </div>
         </div>
       ) : (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
+        <div className="bg-white rounded-lg shadow overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
@@ -265,7 +265,11 @@ python demo_workflow.py`}
                 const workflow = workflows.get(execution.workflow_id)
                 const project = workflow ? projects.get(workflow.project_id) : null
                 return (
-                  <tr key={execution.id} className="hover:bg-gray-50">
+                  <tr
+                    key={execution.id}
+                    className="hover:bg-blue-50 cursor-pointer transition-colors duration-150 group"
+                    onClick={() => navigate(`/executions/${execution.id}`)}
+                  >
                     {!projectId && (
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900">
@@ -275,15 +279,17 @@ python demo_workflow.py`}
                     )}
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       <div className="font-medium">{workflow?.name || 'Unknown'}</div>
-                      <div className="text-xs text-gray-400 font-mono">{execution.id.substring(0, 8)}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-500 font-mono">
+                      {execution.id.substring(0, 8)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`px-2 inline-flex text-[10px] leading-4 font-bold rounded-full uppercase tracking-wider ${getStatusColor(execution.status)}`}>
                         {execution.status}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-500 font-mono italic max-w-xs truncate">
-                      {execution.input_data ? JSON.stringify(execution.input_data).substring(0, 40) + '...' : '-'}
+                    <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-500 font-mono italic max-w-md truncate">
+                      {execution.input_data ? JSON.stringify(execution.input_data).substring(0, 60) + '...' : '-'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {formatDate(execution.started_at)}
@@ -298,12 +304,12 @@ python demo_workflow.py`}
                       {execution.estimated_cost ? `$${execution.estimated_cost.toFixed(4)}` : '-'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <button
-                        onClick={() => navigate(`/executions/${execution.id}`)}
-                        className="text-blue-600 hover:text-blue-900"
-                      >
-                        View Details
-                      </button>
+                      <span className="text-blue-600 group-hover:text-blue-800 flex items-center gap-1">
+                        Details
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      </span>
                     </td>
                   </tr>
                 )

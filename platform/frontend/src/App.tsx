@@ -13,6 +13,7 @@ import ExecutionDetail from './pages/ExecutionDetail'
 import Analytics from './pages/Analytics'
 import Settings from './pages/Settings'
 import CostDashboard from './pages/CostDashboard'
+import TelemetryExplorer from './pages/TelemetryExplorer'
 
 function App() {
   const [user, setUser] = useState<User | null>(null)
@@ -53,6 +54,7 @@ function App() {
           <Route path="analytics" element={<Analytics />} />
           <Route path="analytics/:projectId" element={<Analytics />} />
           <Route path="cost" element={<CostDashboard />} />
+          <Route path="explorer" element={<TelemetryExplorer />} />
           <Route path="executions/:executionId" element={<ExecutionDetail />} />
           <Route path="settings" element={<Settings />} />
         </Route>

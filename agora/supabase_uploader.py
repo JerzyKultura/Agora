@@ -402,45 +402,67 @@ class SupabaseUploader:
         output_data: Optional[Dict[str, Any]] = None,
         error_message: Optional[str] = None
     ):
-        """Complete the execution"""
+        """Complete the current execution"""
         if not self.enabled or not self.execution_id:
             return
 
         try:
-            # Get execution to calculate duration
-            exec_result = self.client.table("executions")\
-                .select("started_at")\
-                .eq("id", self.execution_id)\
-                .single()\
-                .execute()
-
-            # Parse started_at and ensure it's timezone-aware
-            started_at_str = exec_result.data["started_at"]
-            if started_at_str.endswith('Z'):
-                started_at_str = started_at_str[:-1] + '+00:00'
-            started_at = datetime.fromisoformat(started_at_str)
-            
-            # Ensure started_at is timezone-aware
-            if started_at.tzinfo is None:
-                started_at = started_at.replace(tzinfo=timezone.utc)
-            
-            completed_at = datetime.now(timezone.utc)
-            duration_ms = int((completed_at - started_at).total_seconds() * 1000)
-
-            # Update execution
-            await self._execute_resilient("executions", {
+            # 1. Update status
+            updates = {
                 "status": status,
-                "completed_at": completed_at.isoformat(),
-                "duration_ms": duration_ms,
-                "output_data": output_data,
-                "error_message": error_message
-            }, method="update", query_params={"id": self.execution_id})
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "error": error_message
+            }
+            if output_data:
+                updates["output_data"] = output_data
 
-            await self.flush_spans() # Flush any remaining spans
-            print(f"✅ Completed execution: {self.execution_id} ({status})")
+            await self._execute_resilient("executions", updates, method="update", query_params={"id": self.execution_id})
+
+            # 2. Flush remaining spans
+            await self.flush_spans()
+            
+            # 3. Aggregate totals (Fix for Dashboard)
+            await self._update_execution_totals()
 
         except Exception as e:
-            print(f"⚠️  Failed to complete execution: {e}")
+            print(f"DEBUG: Error completing execution: {e}")
+
+    async def _update_execution_totals(self):
+        """Calculate total tokens and cost from spans and update execution record"""
+        if not self.execution_id:
+            return
+
+        try:
+            # Fetch all spans for this execution (attributes contains the data)
+            res = self.client.table("telemetry_spans")\
+                .select("attributes")\
+                .eq("execution_id", self.execution_id)\
+                .execute()
+            
+            if not res.data:
+                return
+
+            total_tokens = 0
+            total_cost = 0.0
+
+            for s in res.data:
+                attrs = s.get("attributes") or {}
+                # Try common keys for tokens
+                tokens = attrs.get("tokens.total") or attrs.get("llm.usage.total_tokens") or attrs.get("tokens_used") or 0
+                # Try common keys for cost
+                cost = attrs.get("estimated_cost") or attrs.get("cost") or 0.0
+                
+                total_tokens += int(tokens)
+                total_cost += float(cost)
+
+            # Update the execution record
+            await self._execute_resilient("executions", {
+                "tokens_used": total_tokens,
+                "estimated_cost": total_cost
+            }, method="update", query_params={"id": self.execution_id})
+            
+        except Exception as e:
+            print(f"DEBUG: Error updating execution totals: {e}")
 
     async def flush_spans(self):
         """Flush buffered spans to Supabase"""
