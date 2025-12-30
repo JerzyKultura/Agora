@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Traceloop Comparison Demo - Google Colab Ready
-===============================================
+Traceloop Comparison Demo - Works Locally & in Google Colab
+============================================================
 
 This demo sends telemetry to BOTH:
 1. Traceloop Dashboard (https://app.traceloop.com)
@@ -9,14 +9,17 @@ This demo sends telemetry to BOTH:
 
 Run this to compare the two telemetry systems side-by-side!
 
+LOCAL SETUP:
+1. Create .env file with your API keys (see .env.example)
+2. Run: python3 traceloop_comparison.py
+3. Choose demo or interactive mode
+4. View telemetry in both dashboards
+
 COLAB SETUP:
 1. Copy this entire file into a Colab cell
-2. Replace API keys below
-3. Run the cell
-4. Ask questions in the chatbot
-5. View telemetry in both dashboards:
-   - Traceloop: https://app.traceloop.com
-   - Agora: http://localhost:5173/live (if running locally)
+2. Uncomment the !pip install line below
+3. Set your API keys in the COLAB CONFIGURATION section
+4. Run the cell
 
 """
 
@@ -25,26 +28,44 @@ COLAB SETUP:
 # ============================================================================
 # Uncomment these lines if running in Google Colab:
 
-# !pip install -q traceloop-sdk openai
+# !pip install -q traceloop-sdk openai supabase python-dotenv
 
 # ============================================================================
-# CONFIGURATION - SET YOUR API KEYS HERE
+# LOAD ENVIRONMENT VARIABLES
 # ============================================================================
 
 import os
 
-# 1. OpenAI API Key (required)
-OPENAI_API_KEY = "sk-..."  # ← Replace with your OpenAI key
+# Try to load .env file (for local development)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+    print("✅ Loaded credentials from .env file")
+except ImportError:
+    print("⚠️  python-dotenv not installed, using hardcoded values")
+except:
+    pass
 
-# 2. Traceloop API Key (for Traceloop dashboard)
-TRACELOOP_API_KEY = "tl_6894c89d3a0343afab2828f7cf371a25"  # Your key
+# ============================================================================
+# CONFIGURATION - For Colab users, set your keys here
+# ============================================================================
 
-# 3. Agora Supabase (optional - for your Agora platform)
-AGORA_SUPABASE_URL = ""  # ← Optional: Your Supabase URL
-AGORA_SUPABASE_KEY = ""  # ← Optional: Your Supabase anon key
+# If running in Colab, set your keys here (otherwise they'll be loaded from .env)
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "sk-...")  # ← Replace in Colab
+TRACELOOP_API_KEY = os.getenv("TRACELOOP_API_KEY", "tl_6894c89d3a0343afab2828f7cf371a25")
+AGORA_SUPABASE_URL = os.getenv("VITE_SUPABASE_URL", "")
+AGORA_SUPABASE_KEY = os.getenv("VITE_SUPABASE_ANON_KEY", "")
+AGORA_API_KEY = os.getenv("AGORA_API_KEY", "")
+AGORA_PROJECT_ID = os.getenv("AGORA_PROJECT_ID", "")
 
-# Set environment variables
+# Set environment variables for libraries to use
 os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
+if AGORA_SUPABASE_URL:
+    os.environ["VITE_SUPABASE_URL"] = AGORA_SUPABASE_URL
+    os.environ["VITE_SUPABASE_ANON_KEY"] = AGORA_SUPABASE_KEY
+if AGORA_API_KEY:
+    os.environ["AGORA_API_KEY"] = AGORA_API_KEY
+    os.environ["AGORA_PROJECT_ID"] = AGORA_PROJECT_ID
 
 # ============================================================================
 # INITIALIZE TRACELOOP
@@ -71,21 +92,24 @@ print()
 SEND_TO_AGORA = bool(AGORA_SUPABASE_URL and AGORA_SUPABASE_KEY)
 
 if SEND_TO_AGORA:
-    os.environ["VITE_SUPABASE_URL"] = AGORA_SUPABASE_URL
-    os.environ["VITE_SUPABASE_ANON_KEY"] = AGORA_SUPABASE_KEY
+    try:
+        from agora.agora_tracer import init_agora
 
-    from agora.agora_tracer import init_agora
-
-    print("🔧 Also initializing Agora telemetry...")
-    init_agora(
-        app_name="comparison-chatbot",
-        project_name="Traceloop Comparison",
-        enable_cloud_upload=True,
-        export_to_console=False
-    )
-    print("✅ Agora telemetry enabled!")
-    print("📊 View at: http://localhost:5173/live")
-    print()
+        print("🔧 Also initializing Agora telemetry...")
+        init_agora(
+            app_name="comparison-chatbot",
+            project_name="Traceloop Comparison",
+            enable_cloud_upload=True,
+            export_to_console=False
+        )
+        print("✅ Agora telemetry enabled!")
+        print("📊 View at: http://localhost:5173/live")
+        print()
+    except ImportError:
+        print("⚠️  Agora not installed. Install with: pip install -e .")
+        print("    Continuing with Traceloop-only mode...")
+        SEND_TO_AGORA = False
+        print()
 
 # ============================================================================
 # CHATBOT
