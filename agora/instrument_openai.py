@@ -10,28 +10,29 @@ except ImportError:
     trace = None
 
 
-def trace_openai_call(client, **kwargs) -> Any:
+def trace_openai_call(client, original_method=None, **kwargs) -> Any:
     """
     Wrapper around client.chat.completions.create with OpenTelemetry tracing.
-    
+
     Captures Traceloop-style attributes:
     - llm.provider, llm.operation, llm.model
     - llm.temperature, llm.top_p, llm.max_tokens
     - prompt.preview, response.preview
     - tokens.prompt, tokens.completion
     - llm.api.latency_ms
-    
+
     Args:
         client: OpenAI client instance
+        original_method: Original create method (when using instrumentation)
         **kwargs: Arguments passed to client.chat.completions.create()
-    
+
     Returns:
         OpenAI completion response object
-    
+
     Example:
         >>> from openai import OpenAI
         >>> from agora.instrument_openai import trace_openai_call
-        >>> 
+        >>>
         >>> client = OpenAI()
         >>> response = trace_openai_call(
         ...     client,
@@ -40,9 +41,17 @@ def trace_openai_call(client, **kwargs) -> Any:
         ... )
         >>> print(response.choices[0].message.content)
     """
+    # Determine which method to call
+    if original_method is not None:
+        # Use the passed original method (from instrumentation)
+        create_method = original_method
+    else:
+        # Use the current method on the client
+        create_method = client.chat.completions.create
+
     if not OTEL_AVAILABLE:
         # Fallback: call API without tracing
-        return client.chat.completions.create(**kwargs)
+        return create_method(**kwargs)
     
     # Get tracer
     tracer = trace.get_tracer(__name__)
@@ -77,8 +86,8 @@ def trace_openai_call(client, **kwargs) -> Any:
         start_time = time.time()
         
         try:
-            # Make the API call
-            response = client.chat.completions.create(**kwargs)
+            # Make the API call using the correct method
+            response = create_method(**kwargs)
             
             # Calculate latency
             latency_ms = (time.time() - start_time) * 1000
@@ -167,12 +176,12 @@ def instrument_openai_client(client):
     
     # Store original method
     original_create = client.chat.completions.create
-    
-    # Create wrapper
+
+    # Create wrapper that passes the original method
     def traced_create(**kwargs):
-        return trace_openai_call(client, **kwargs)
-    
+        return trace_openai_call(client, original_method=original_create, **kwargs)
+
     # Replace method
     client.chat.completions.create = traced_create
-    
+
     return client
