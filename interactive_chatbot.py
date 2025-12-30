@@ -21,9 +21,8 @@ import asyncio
 from openai import OpenAI
 
 from agora.agora_tracer import init_agora
-from agora.instrument_openai import instrument_openai_client
 
-# Initialize Agora telemetry
+# Initialize Agora telemetry (Traceloop auto-instruments OpenAI!)
 print("🔧 Initializing Agora telemetry...")
 init_agora(
     app_name="interactive-chatbot",
@@ -33,9 +32,8 @@ init_agora(
     capture_io=True
 )
 
-# Initialize OpenAI client with instrumentation
+# Initialize OpenAI client (automatically instrumented by Traceloop)
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-instrument_openai_client(client)
 
 # Conversation history
 conversation_history = [
