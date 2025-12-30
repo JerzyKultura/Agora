@@ -484,29 +484,43 @@ class SupabaseUploader:
 
     async def flush_spans(self):
         """Flush buffered spans to Supabase"""
+        print(f"DEBUG: flush_spans() called - enabled={self.enabled}, buffer_size={len(self.span_buffer)}, execution_id={self.execution_id}")
+
         if not self.enabled or not self.span_buffer or not self.execution_id:
+            print(f"DEBUG: flush_spans() - Skipping flush (enabled={self.enabled}, has_buffer={bool(self.span_buffer)}, has_execution={bool(self.execution_id)})")
             return
 
         try:
             spans_to_upload = self.span_buffer.copy()
             self.span_buffer = []
-            
-            await self._execute_resilient("telemetry_spans", spans_to_upload, method="insert")
+
+            print(f"DEBUG: flush_spans() - Uploading {len(spans_to_upload)} span(s) to Supabase...")
+            result = await self._execute_resilient("telemetry_spans", spans_to_upload, method="insert")
+            print(f"DEBUG: flush_spans() - Upload complete, result: {result}")
         except Exception as e:
             print(f"⚠️  Failed to flush spans: {e}")
+            import traceback
+            traceback.print_exc()
 
     async def add_spans(self, spans: List[Dict[str, Any]]):
         """Add spans to the buffer"""
+        print(f"DEBUG: add_spans() called with {len(spans)} span(s), enabled={self.enabled}, execution_id={self.execution_id}")
+
         if not self.enabled:
+            print("DEBUG: add_spans() - uploader not enabled, returning")
             return
 
         # Auto-create execution if none exists (for standalone LLM calls)
         if not self.execution_id:
+            print("DEBUG: add_spans() - No execution_id, calling _create_standalone_execution()")
             await self._create_standalone_execution()
             if not self.execution_id:
+                print("DEBUG: add_spans() - Still no execution_id after creation attempt, bailing out")
                 return  # Still no execution_id, bail out
+            print(f"DEBUG: add_spans() - Created execution_id: {self.execution_id}")
 
         try:
+            print(f"DEBUG: add_spans() - Adding {len(spans)} spans to buffer (current size: {len(self.span_buffer)})")
             for span in spans:
                 self.span_buffer.append({
                     "execution_id": self.execution_id,
@@ -527,9 +541,14 @@ class SupabaseUploader:
 
             # If buffer exceeds batch size, flush it.
             if len(self.span_buffer) >= self.batch_size:
+                print(f"DEBUG: add_spans() - Buffer size ({len(self.span_buffer)}) >= batch_size ({self.batch_size}), flushing...")
                 await self.flush_spans()
+            else:
+                print(f"DEBUG: add_spans() - Buffer size ({len(self.span_buffer)}) < batch_size ({self.batch_size}), not flushing yet")
         except Exception as e:
             print(f"⚠️  Failed to add spans to buffer: {e}")
+            import traceback
+            traceback.print_exc()
 
     async def add_node_execution(
         self,

@@ -116,15 +116,18 @@ def init_agora(
                 if not cloud_uploader or not cloud_uploader.enabled:
                     return SpanExportResult.SUCCESS
 
+                print(f"DEBUG: SupabaseSpanExporter.export() called with {len(spans)} span(s)")
+
                 formatted = []
                 for span in spans:
                     attrs = dict(span.attributes or {})
-                    
+
                     # Extract usage metrics if available (standard OTel / Traceloop attrs)
                     tokens = attrs.get("llm.usage.total_tokens") or \
                              attrs.get("traceloop.usage.total_tokens") or \
-                             attrs.get("usage.total_tokens")
-                    
+                             attrs.get("usage.total_tokens") or \
+                             attrs.get("gen_ai.usage.input_tokens", 0) + attrs.get("gen_ai.usage.output_tokens", 0)
+
                     cost = attrs.get("traceloop.cost.usd") or \
                            attrs.get("llm.usage.cost") or \
                            attrs.get("usage.cost")
@@ -141,7 +144,7 @@ def init_agora(
                         "end_time": datetime.fromtimestamp(span.end_time / 1e9).isoformat() if span.end_time else None,
                         "duration_ms": int((span.end_time - span.start_time) / 1e6) if span.end_time else None,
                         "attributes": attrs,
-                        "tokens_used": int(tokens) if tokens is not None else None,
+                        "tokens_used": int(tokens) if tokens is not None and tokens > 0 else None,
                         "estimated_cost": float(cost) if cost is not None else None,
                         "events": [
                             {"name": event.name, "timestamp": datetime.fromtimestamp(event.timestamp / 1e9).isoformat(), "attributes": dict(event.attributes or {})}
@@ -150,17 +153,22 @@ def init_agora(
                     })
 
                 if formatted:
+                    print(f"DEBUG: Formatted {len(formatted)} span(s), calling add_spans()...")
                     # Run async upload in a way that doesn't block
                     try:
                         loop = asyncio.get_event_loop()
                         if loop.is_running():
+                            print("DEBUG: Event loop is running, creating task")
                             loop.create_task(cloud_uploader.add_spans(formatted))
                         else:
-                            # If no loop is running, we can't easily wait for async in a sync context
-                            # without potentially blocking. However, for a simple script, we can run it.
+                            print("DEBUG: No event loop running, using asyncio.run()")
                             asyncio.run(cloud_uploader.add_spans(formatted))
                     except Exception as e:
                         print(f"DEBUG: Internal span export error: {e}")
+                        import traceback
+                        traceback.print_exc()
+                else:
+                    print("DEBUG: No formatted spans to export")
 
                 return SpanExportResult.SUCCESS
 
@@ -184,6 +192,9 @@ def init_agora(
             project_name=project_name or app_name,
             api_key=api_key
         )
+        # Set batch size to 1 for immediate flushing (better for demos/debugging)
+        cloud_uploader.batch_size = 1
+        print(f"DEBUG: Set batch_size to {cloud_uploader.batch_size} for immediate flushing")
     elif enable_cloud_upload and not SUPABASE_UPLOADER_AVAILABLE:
         print("DEBUG: SUPABASE_UPLOADER_AVAILABLE is False")
         print("⚠️  Supabase upload not available (install supabase-py: pip install supabase)")
