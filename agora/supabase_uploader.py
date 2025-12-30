@@ -359,6 +359,46 @@ class SupabaseUploader:
             if source and target:
                 await self._register_edge(source, target, label)
 
+    async def _create_standalone_execution(self) -> Optional[str]:
+        """Create a standalone execution for LLM calls without a workflow"""
+        if not self.enabled:
+            return None
+
+        try:
+            # 1. Org/Project setup
+            if not self.project_id:
+                if self.force_project_id:
+                    self.project_id = self.force_project_id
+                else:
+                    if not self.organization_id:
+                        self.organization_id = await self._get_or_create_org()
+                    self.project_id = await self._get_or_create_project()
+
+            # 2. Get or create a "Standalone LLM Calls" workflow
+            if not self.workflow_id:
+                self.workflow_id = await self._get_or_create_workflow("Standalone LLM Calls")
+
+            if not self.workflow_id:
+                return None
+
+            # 3. Create execution
+            result = await self._execute_resilient("executions", {
+                "workflow_id": self.workflow_id,
+                "status": "running",
+                "input_data": {"type": "standalone_llm_calls"},
+                "started_at": datetime.now(timezone.utc).isoformat()
+            }, method="insert")
+
+            if result and result.data:
+                self.execution_id = result.data[0]["id"]
+                print(f"📊 Created standalone execution: {self.execution_id}")
+                return self.execution_id
+            return None
+
+        except Exception as e:
+            print(f"⚠️  Failed to create standalone execution: {e}")
+            return None
+
     async def start_execution(self, workflow_name: str, input_data: Optional[Dict[str, Any]] = None) -> Optional[str]:
         """Start a new workflow execution"""
         if not self.enabled:
@@ -373,10 +413,10 @@ class SupabaseUploader:
                     if not self.organization_id:
                         self.organization_id = await self._get_or_create_org()
                     self.project_id = await self._get_or_create_project()
-            
+
             if not self.workflow_id:
                 self.workflow_id = await self._get_or_create_workflow(workflow_name)
-            
+
             if not self.workflow_id:
                 return None
 
@@ -457,8 +497,14 @@ class SupabaseUploader:
 
     async def add_spans(self, spans: List[Dict[str, Any]]):
         """Add spans to the buffer"""
-        if not self.enabled or not self.execution_id:
+        if not self.enabled:
             return
+
+        # Auto-create execution if none exists (for standalone LLM calls)
+        if not self.execution_id:
+            await self._create_standalone_execution()
+            if not self.execution_id:
+                return  # Still no execution_id, bail out
 
         try:
             for span in spans:
