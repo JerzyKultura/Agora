@@ -359,6 +359,46 @@ class SupabaseUploader:
             if source and target:
                 await self._register_edge(source, target, label)
 
+    async def _create_standalone_execution(self) -> Optional[str]:
+        """Create a standalone execution for LLM calls without a workflow"""
+        if not self.enabled:
+            return None
+
+        try:
+            # 1. Org/Project setup
+            if not self.project_id:
+                if self.force_project_id:
+                    self.project_id = self.force_project_id
+                else:
+                    if not self.organization_id:
+                        self.organization_id = await self._get_or_create_org()
+                    self.project_id = await self._get_or_create_project()
+
+            # 2. Get or create a "Standalone LLM Calls" workflow
+            if not self.workflow_id:
+                self.workflow_id = await self._get_or_create_workflow("Standalone LLM Calls")
+
+            if not self.workflow_id:
+                return None
+
+            # 3. Create execution
+            result = await self._execute_resilient("executions", {
+                "workflow_id": self.workflow_id,
+                "status": "running",
+                "input_data": {"type": "standalone_llm_calls"},
+                "started_at": datetime.now(timezone.utc).isoformat()
+            }, method="insert")
+
+            if result and result.data:
+                self.execution_id = result.data[0]["id"]
+                print(f"📊 Created standalone execution: {self.execution_id}")
+                return self.execution_id
+            return None
+
+        except Exception as e:
+            print(f"⚠️  Failed to create standalone execution: {e}")
+            return None
+
     async def start_execution(self, workflow_name: str, input_data: Optional[Dict[str, Any]] = None) -> Optional[str]:
         """Start a new workflow execution"""
         if not self.enabled:
@@ -373,10 +413,10 @@ class SupabaseUploader:
                     if not self.organization_id:
                         self.organization_id = await self._get_or_create_org()
                     self.project_id = await self._get_or_create_project()
-            
+
             if not self.workflow_id:
                 self.workflow_id = await self._get_or_create_workflow(workflow_name)
-            
+
             if not self.workflow_id:
                 return None
 
@@ -402,67 +442,45 @@ class SupabaseUploader:
         output_data: Optional[Dict[str, Any]] = None,
         error_message: Optional[str] = None
     ):
-        """Complete the current execution"""
+        """Complete the execution"""
         if not self.enabled or not self.execution_id:
             return
 
         try:
-            # 1. Update status
-            updates = {
-                "status": status,
-                "completed_at": datetime.now(timezone.utc).isoformat(),
-                "error": error_message
-            }
-            if output_data:
-                updates["output_data"] = output_data
-
-            await self._execute_resilient("executions", updates, method="update", query_params={"id": self.execution_id})
-
-            # 2. Flush remaining spans
-            await self.flush_spans()
-            
-            # 3. Aggregate totals (Fix for Dashboard)
-            await self._update_execution_totals()
-
-        except Exception as e:
-            print(f"DEBUG: Error completing execution: {e}")
-
-    async def _update_execution_totals(self):
-        """Calculate total tokens and cost from spans and update execution record"""
-        if not self.execution_id:
-            return
-
-        try:
-            # Fetch all spans for this execution (attributes contains the data)
-            res = self.client.table("telemetry_spans")\
-                .select("attributes")\
-                .eq("execution_id", self.execution_id)\
+            # Get execution to calculate duration
+            exec_result = self.client.table("executions")\
+                .select("started_at")\
+                .eq("id", self.execution_id)\
+                .single()\
                 .execute()
+
+            # Parse started_at and ensure it's timezone-aware
+            started_at_str = exec_result.data["started_at"]
+            if started_at_str.endswith('Z'):
+                started_at_str = started_at_str[:-1] + '+00:00'
+            started_at = datetime.fromisoformat(started_at_str)
             
-            if not res.data:
-                return
+            # Ensure started_at is timezone-aware
+            if started_at.tzinfo is None:
+                started_at = started_at.replace(tzinfo=timezone.utc)
+            
+            completed_at = datetime.now(timezone.utc)
+            duration_ms = int((completed_at - started_at).total_seconds() * 1000)
 
-            total_tokens = 0
-            total_cost = 0.0
-
-            for s in res.data:
-                attrs = s.get("attributes") or {}
-                # Try common keys for tokens
-                tokens = attrs.get("tokens.total") or attrs.get("llm.usage.total_tokens") or attrs.get("tokens_used") or 0
-                # Try common keys for cost
-                cost = attrs.get("estimated_cost") or attrs.get("cost") or 0.0
-                
-                total_tokens += int(tokens)
-                total_cost += float(cost)
-
-            # Update the execution record
+            # Update execution
             await self._execute_resilient("executions", {
-                "tokens_used": total_tokens,
-                "estimated_cost": total_cost
+                "status": status,
+                "completed_at": completed_at.isoformat(),
+                "duration_ms": duration_ms,
+                "output_data": output_data,
+                "error_message": error_message
             }, method="update", query_params={"id": self.execution_id})
-            
+
+            await self.flush_spans() # Flush any remaining spans
+            print(f"✅ Completed execution: {self.execution_id} ({status})")
+
         except Exception as e:
-            print(f"DEBUG: Error updating execution totals: {e}")
+            print(f"⚠️  Failed to complete execution: {e}")
 
     async def flush_spans(self):
         """Flush buffered spans to Supabase"""
@@ -479,8 +497,14 @@ class SupabaseUploader:
 
     async def add_spans(self, spans: List[Dict[str, Any]]):
         """Add spans to the buffer"""
-        if not self.enabled or not self.execution_id:
+        if not self.enabled:
             return
+
+        # Auto-create execution if none exists (for standalone LLM calls)
+        if not self.execution_id:
+            await self._create_standalone_execution()
+            if not self.execution_id:
+                return  # Still no execution_id, bail out
 
         try:
             for span in spans:
@@ -572,3 +596,4 @@ def create_supabase_uploader(
         supabase_url=supabase_url,
         supabase_key=supabase_key
     )
+    

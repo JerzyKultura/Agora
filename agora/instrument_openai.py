@@ -40,9 +40,11 @@ def trace_openai_call(client, **kwargs) -> Any:
         ... )
         >>> print(response.choices[0].message.content)
     """
+    api_func = kwargs.pop('_api_func', None)
+    
     if not OTEL_AVAILABLE:
         # Fallback: call API without tracing
-        return client.chat.completions.create(**kwargs)
+        return api_func(**kwargs) if api_func else client.chat.completions.create(**kwargs)
     
     # Get tracer
     tracer = trace.get_tracer(__name__)
@@ -78,7 +80,10 @@ def trace_openai_call(client, **kwargs) -> Any:
         
         try:
             # Make the API call
-            response = client.chat.completions.create(**kwargs)
+            if api_func:
+                response = api_func(**kwargs)
+            else:
+                response = client.chat.completions.create(**kwargs)
             
             # Calculate latency
             latency_ms = (time.time() - start_time) * 1000
@@ -170,7 +175,7 @@ def instrument_openai_client(client):
     
     # Create wrapper
     def traced_create(**kwargs):
-        return trace_openai_call(client, **kwargs)
+        return trace_openai_call(client, _api_func=original_create, **kwargs)
     
     # Replace method
     client.chat.completions.create = traced_create
