@@ -24,9 +24,23 @@ export default function TelemetryExplorer() {
     const [nameFilter, setNameFilter] = useState('')
     const [attrFilter, setAttrFilter] = useState('')
 
+    // Live Mode
+    const [liveMode, setLiveMode] = useState(false)
+    const [refreshTrigger, setRefreshTrigger] = useState(0)
+
     useEffect(() => {
         fetchSpans()
-    }, [limit])
+    }, [limit, refreshTrigger])
+
+    // Auto-Refresh for Live Mode
+    useEffect(() => {
+        if (!liveMode) return
+        const interval = setInterval(() => {
+            // Use a trigger instead of calling fetchSpans directly to avoid race conditions/closures
+            setRefreshTrigger(prev => prev + 1)
+        }, 3000)
+        return () => clearInterval(interval)
+    }, [liveMode])
 
     const fetchSpans = async () => {
         setLoading(true)
@@ -110,15 +124,28 @@ export default function TelemetryExplorer() {
                             onChange={(e) => setAttrFilter(e.target.value)}
                         />
                     </div>
-                    <select
-                        className="border rounded-md px-3 py-2 text-sm bg-gray-50 hover:bg-white transition"
-                        value={limit}
-                        onChange={(e) => setLimit(Number(e.target.value))}
-                    >
-                        <option value={100}>Last 100</option>
-                        <option value={500}>Last 500</option>
-                        <option value={1000}>Last 1000</option>
-                    </select>
+                    <div className="flex items-center gap-3 border-l pl-4 ml-2">
+                        <button
+                            onClick={() => setLiveMode(!liveMode)}
+                            className={`px-3 py-2 rounded-md text-sm font-medium flex items-center gap-2 transition-colors ${liveMode
+                                    ? 'bg-green-100 text-green-700 border border-green-200'
+                                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                }`}
+                        >
+                            <div className={`w-2 h-2 rounded-full ${liveMode ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
+                            {liveMode ? 'Live Mode ON' : 'Live Mode OFF'}
+                        </button>
+
+                        <select
+                            className="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2 outline-none"
+                            value={limit}
+                            onChange={(e) => setLimit(Number(e.target.value))}
+                        >
+                            <option value={50}>Last 50</option>
+                            <option value={100}>Last 100</option>
+                            <option value={500}>Last 500</option>
+                        </select>
+                    </div>
                 </div>
             </div>
 
