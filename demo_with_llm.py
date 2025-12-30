@@ -26,9 +26,8 @@ from agora.agora_tracer import (
     init_agora,
     agora_node,
 )
-from agora.instrument_openai import instrument_openai_client
 
-# Initialize Agora telemetry
+# Initialize Agora telemetry (Traceloop automatically instruments OpenAI!)
 init_agora(
     app_name="talking-chatbot",
     project_name="Production Chatbot",
@@ -37,9 +36,9 @@ init_agora(
     capture_io=True  # Capture input/output in spans
 )
 
-# Initialize OpenAI client with instrumentation
+# Initialize OpenAI client (NO manual instrumentation needed!)
+# Traceloop SDK already instruments it automatically
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-instrument_openai_client(client)  # Auto-traces all LLM calls
 
 
 @agora_node(name="MemoryRetrieval")
