@@ -113,7 +113,7 @@ def init_agora(
         class SupabaseSpanExporter(SpanExporter):
             def export(self, spans: Sequence[ReadableSpan]) -> SpanExportResult:
                 global cloud_uploader
-                if not cloud_uploader or not cloud_uploader.enabled or not cloud_uploader.execution_id:
+                if not cloud_uploader or not cloud_uploader.enabled:
                     return SpanExportResult.SUCCESS
 
                 formatted = []
