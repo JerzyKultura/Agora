@@ -192,7 +192,7 @@ export default function Monitoring() {
       const maxDuration = durations.length > 0 ? Math.max(...durations) : 0
       const minDuration = durations.length > 0 ? Math.min(...durations) : 0
 
-      const workflowName = rootSpan.execution_id ? executionNames.get(rootSpan.execution_id) : undefined
+      const workflow_name = rootSpan.execution_id ? executionNames.get(rootSpan.execution_id) : undefined
 
       return {
         trace_id,
