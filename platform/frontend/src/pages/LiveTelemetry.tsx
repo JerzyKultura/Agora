@@ -1,6 +1,6 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { Pause, Play, Trash2, Filter, Radio } from 'lucide-react'
+import { ChevronRight, Clock, Zap, DollarSign, Radio, X } from 'lucide-react'
 
 interface TelemetrySpan {
   id: string
@@ -21,29 +21,28 @@ interface TelemetrySpan {
   created_at: string
 }
 
-interface Execution {
-  id: string
-  workflow_id: string
-}
-
-interface Workflow {
-  id: string
-  name: string
+interface Trace {
+  trace_id: string
+  spans: TelemetrySpan[]
+  root_span: TelemetrySpan
+  start_time: string
+  duration_ms: number
+  total_tokens: number
+  total_cost: number
+  workflow_name?: string
 }
 
 export default function LiveTelemetry() {
   const [spans, setSpans] = useState<TelemetrySpan[]>([])
-  const [isPaused, setIsPaused] = useState(false)
-  const [filterMode, setFilterMode] = useState<'all' | 'llm' | 'agora'>('all')
-  const [autoScroll, setAutoScroll] = useState(true)
+  const [traces, setTraces] = useState<Trace[]>([])
+  const [selectedTrace, setSelectedTrace] = useState<Trace | null>(null)
+  const [selectedSpan, setSelectedSpan] = useState<TelemetrySpan | null>(null)
+  const [activeTab, setActiveTab] = useState<'prompt' | 'completions' | 'llm_data' | 'details' | 'raw'>('prompt')
   const [executions, setExecutions] = useState<Map<string, string>>(new Map())
-  const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    // Load recent spans (last 50)
     loadRecentSpans()
 
-    // Subscribe to new spans
     const channel = supabase
       .channel('live_telemetry_spans')
       .on('postgres_changes', {
@@ -51,42 +50,75 @@ export default function LiveTelemetry() {
         schema: 'public',
         table: 'telemetry_spans'
       }, async (payload) => {
-        if (!isPaused) {
-          const newSpan = payload.new as TelemetrySpan
+        const newSpan = payload.new as TelemetrySpan
 
-          // Load execution/workflow name if available
-          if (newSpan.execution_id && !executions.has(newSpan.execution_id)) {
-            try {
-              const { data: exec } = await supabase
-                .from('executions')
-                .select('workflow_id, workflows(name)')
-                .eq('id', newSpan.execution_id)
-                .single()
+        if (newSpan.execution_id && !executions.has(newSpan.execution_id)) {
+          try {
+            const { data: exec } = await supabase
+              .from('executions')
+              .select('workflow_id, workflows(name)')
+              .eq('id', newSpan.execution_id)
+              .single()
 
-              if (exec) {
-                const workflowName = (exec as any).workflows?.name || 'Unknown'
-                setExecutions(prev => new Map(prev).set(newSpan.execution_id!, workflowName))
-              }
-            } catch (e) {
-              console.error('Failed to load execution:', e)
+            if (exec) {
+              const workflowName = (exec as any).workflows?.name || 'Unknown'
+              setExecutions(prev => new Map(prev).set(newSpan.execution_id!, workflowName))
             }
+          } catch (e) {
+            console.error('Failed to load execution:', e)
           }
-
-          setSpans(prev => [newSpan, ...prev].slice(0, 200)) // Keep last 200
         }
+
+        setSpans(prev => [newSpan, ...prev].slice(0, 200))
       })
       .subscribe()
 
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [isPaused])
+  }, [])
 
   useEffect(() => {
-    if (autoScroll && bottomRef.current) {
-      bottomRef.current.scrollIntoView({ behavior: 'smooth' })
-    }
-  }, [spans, autoScroll])
+    // Group spans by trace_id
+    const traceMap = new Map<string, TelemetrySpan[]>()
+
+    spans.forEach(span => {
+      if (!traceMap.has(span.trace_id)) {
+        traceMap.set(span.trace_id, [])
+      }
+      traceMap.get(span.trace_id)!.push(span)
+    })
+
+    const tracesArray: Trace[] = Array.from(traceMap.entries()).map(([trace_id, traceSpans]) => {
+      const sortedSpans = traceSpans.sort((a, b) =>
+        new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
+      )
+
+      const rootSpan = sortedSpans.find(s => !s.parent_span_id) || sortedSpans[0]
+      const totalTokens = traceSpans.reduce((sum, s) => sum + (s.tokens_used || 0), 0)
+      const totalCost = traceSpans.reduce((sum, s) => sum + (s.estimated_cost || 0), 0)
+
+      const minTime = Math.min(...sortedSpans.map(s => new Date(s.start_time).getTime()))
+      const maxTime = Math.max(...sortedSpans.map(s => new Date(s.end_time || s.start_time).getTime()))
+
+      const workflowName = rootSpan.execution_id ? executions.get(rootSpan.execution_id) : undefined
+
+      return {
+        trace_id,
+        spans: sortedSpans,
+        root_span: rootSpan,
+        start_time: new Date(minTime).toISOString(),
+        duration_ms: maxTime - minTime,
+        total_tokens: totalTokens,
+        total_cost: totalCost,
+        workflow_name
+      }
+    })
+
+    setTraces(tracesArray.sort((a, b) =>
+      new Date(b.start_time).getTime() - new Date(a.start_time).getTime()
+    ))
+  }, [spans, executions])
 
   const loadRecentSpans = async () => {
     try {
@@ -94,14 +126,13 @@ export default function LiveTelemetry() {
         .from('telemetry_spans')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(50)
+        .limit(100)
 
       if (error) throw error
 
       if (data) {
         setSpans(data)
 
-        // Load workflow names for executions
         const executionIds = [...new Set(data.map(s => s.execution_id).filter(Boolean))]
         const execMap = new Map<string, string>()
 
@@ -129,22 +160,16 @@ export default function LiveTelemetry() {
     }
   }
 
-  const clearSpans = () => {
-    setSpans([])
-  }
-
   const formatTime = (timestamp: string) => {
     return new Date(timestamp).toLocaleTimeString('en-US', {
       hour12: false,
       hour: '2-digit',
       minute: '2-digit',
-      second: '2-digit',
-      fractionalSecondDigits: 3
+      second: '2-digit'
     })
   }
 
-  const formatDuration = (ms: number | null) => {
-    if (!ms) return '-'
+  const formatDuration = (ms: number) => {
     if (ms < 1000) return `${ms}ms`
     return `${(ms / 1000).toFixed(2)}s`
   }
@@ -152,255 +177,439 @@ export default function LiveTelemetry() {
   const extractLLMInfo = (span: TelemetrySpan) => {
     const attrs = span.attributes || {}
 
+    // Extract all prompts (handle multiple messages)
+    const prompts: Array<{role: string, content: string}> = []
+    let i = 0
+    while (attrs[`gen_ai.prompt.${i}.content`] || attrs[`gen_ai.prompt.${i}.role`]) {
+      prompts.push({
+        role: attrs[`gen_ai.prompt.${i}.role`] || 'user',
+        content: attrs[`gen_ai.prompt.${i}.content`] || ''
+      })
+      i++
+    }
+
+    // Extract completions
+    const completions: Array<{role: string, content: string}> = []
+    i = 0
+    while (attrs[`gen_ai.completion.${i}.content`] || attrs[`gen_ai.completion.${i}.role`]) {
+      completions.push({
+        role: attrs[`gen_ai.completion.${i}.role`] || 'assistant',
+        content: attrs[`gen_ai.completion.${i}.content`] || ''
+      })
+      i++
+    }
+
     return {
-      provider: attrs['llm.provider'] || attrs['traceloop.provider'],
-      model: attrs['llm.model'] || attrs['gen_ai.request.model'],
-      operation: attrs['llm.operation'] || attrs['gen_ai.operation.name'],
-      promptPreview: attrs['llm.prompt'] || attrs['prompt.preview'] || attrs['gen_ai.prompt.0.content'],
-      responsePreview: attrs['llm.response'] || attrs['response.preview'] || attrs['gen_ai.completion.0.content'],
-      temperature: attrs['llm.temperature'] || attrs['gen_ai.request.temperature'],
-      maxTokens: attrs['llm.max_tokens'] || attrs['gen_ai.request.max_tokens'],
-      promptTokens: attrs['llm.usage.prompt_tokens'] || attrs['gen_ai.usage.prompt_tokens'],
-      completionTokens: attrs['llm.usage.completion_tokens'] || attrs['gen_ai.usage.completion_tokens'],
+      provider: attrs['gen_ai.system'] || attrs['llm.provider'],
+      model: attrs['gen_ai.request.model'] || attrs['gen_ai.response.model'] || attrs['llm.model'],
+      temperature: attrs['gen_ai.request.temperature'] || attrs['llm.temperature'],
+      maxTokens: attrs['gen_ai.request.max_tokens'] || attrs['llm.max_tokens'],
+      promptTokens: attrs['gen_ai.usage.input_tokens'] || attrs['llm.usage.prompt_tokens'] || 0,
+      completionTokens: attrs['gen_ai.usage.output_tokens'] || attrs['llm.usage.completion_tokens'] || 0,
+      totalTokens: attrs['llm.usage.total_tokens'] ||
+                   (attrs['gen_ai.usage.input_tokens'] || 0) + (attrs['gen_ai.usage.output_tokens'] || 0),
+      prompts,
+      completions,
+      finishReason: attrs['gen_ai.response.finish_reasons'] || attrs['llm.finish_reason'],
+      apiBase: attrs['gen_ai.openai.api_base'],
+      responseId: attrs['gen_ai.response.id']
     }
   }
 
   const isLLMSpan = (span: TelemetrySpan) => {
+    const attrs = span.attributes || {}
+    return !!(attrs['gen_ai.system'] || attrs['llm.provider'] || span.name.includes('openai') || span.name.includes('chat'))
+  }
+
+  const closeDetail = () => {
+    setSelectedTrace(null)
+    setSelectedSpan(null)
+  }
+
+  const renderPromptTab = (span: TelemetrySpan) => {
     const llmInfo = extractLLMInfo(span)
-    return !!(llmInfo.provider || llmInfo.model || span.name.includes('openai') || span.name.includes('chat') || span.name.includes('completion'))
+
+    if (llmInfo.prompts.length === 0) {
+      return (
+        <div className="text-gray-400 text-sm">No prompt data available</div>
+      )
+    }
+
+    return (
+      <div className="space-y-3">
+        <div className="text-sm font-semibold text-gray-300">Prompts</div>
+        {llmInfo.prompts.map((msg, idx) => (
+          <div key={idx} className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+            <div className="text-xs font-semibold text-purple-400 mb-2 uppercase">{msg.role}</div>
+            <div className="text-sm text-gray-300 whitespace-pre-wrap">{msg.content}</div>
+          </div>
+        ))}
+      </div>
+    )
   }
 
-  const isAgoraSpan = (span: TelemetrySpan) => {
-    return span.attributes?.['agora.kind'] || span.name.includes('agora') || span.name.includes('.node')
+  const renderCompletionsTab = (span: TelemetrySpan) => {
+    const llmInfo = extractLLMInfo(span)
+
+    if (llmInfo.completions.length === 0) {
+      return (
+        <div className="text-gray-400 text-sm">No completion data available</div>
+      )
+    }
+
+    return (
+      <div className="space-y-3">
+        <div className="text-sm font-semibold text-gray-300">Completions</div>
+        {llmInfo.completions.map((msg, idx) => (
+          <div key={idx} className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+            <div className="text-xs font-semibold text-green-400 mb-2 uppercase">{msg.role}</div>
+            <div className="text-sm text-gray-300 whitespace-pre-wrap">{msg.content}</div>
+          </div>
+        ))}
+        {llmInfo.finishReason && (
+          <div className="text-xs text-gray-500">
+            Finish reason: <span className="text-gray-400">{String(llmInfo.finishReason)}</span>
+          </div>
+        )}
+      </div>
+    )
   }
 
-  const filteredSpans = spans.filter(span => {
-    if (filterMode === 'llm') return isLLMSpan(span)
-    if (filterMode === 'agora') return isAgoraSpan(span)
-    return true
-  })
+  const renderLLMDataTab = (span: TelemetrySpan) => {
+    const llmInfo = extractLLMInfo(span)
+
+    return (
+      <div className="space-y-4">
+        <div>
+          <div className="text-xs text-gray-500 mb-1">Model</div>
+          <div className="text-sm text-gray-200">{llmInfo.model || 'N/A'}</div>
+        </div>
+        <div>
+          <div className="text-xs text-gray-500 mb-1">Provider</div>
+          <div className="text-sm text-gray-200">{llmInfo.provider || 'N/A'}</div>
+        </div>
+        <div>
+          <div className="text-xs text-gray-500 mb-1">Temperature</div>
+          <div className="text-sm text-gray-200">{llmInfo.temperature ?? 'N/A'}</div>
+        </div>
+        <div>
+          <div className="text-xs text-gray-500 mb-1">Max Tokens</div>
+          <div className="text-sm text-gray-200">{llmInfo.maxTokens || 'N/A'}</div>
+        </div>
+        <div>
+          <div className="text-xs text-gray-500 mb-1">Token Usage</div>
+          <div className="text-sm text-gray-200">
+            {llmInfo.promptTokens} input + {llmInfo.completionTokens} output = {llmInfo.totalTokens} total
+          </div>
+        </div>
+        {span.estimated_cost && (
+          <div>
+            <div className="text-xs text-gray-500 mb-1">Estimated Cost</div>
+            <div className="text-sm text-green-400 font-semibold">${span.estimated_cost.toFixed(6)}</div>
+          </div>
+        )}
+        {llmInfo.apiBase && (
+          <div>
+            <div className="text-xs text-gray-500 mb-1">API Base</div>
+            <div className="text-sm text-gray-200 font-mono text-xs">{llmInfo.apiBase}</div>
+          </div>
+        )}
+        {llmInfo.responseId && (
+          <div>
+            <div className="text-xs text-gray-500 mb-1">Response ID</div>
+            <div className="text-sm text-gray-200 font-mono text-xs">{llmInfo.responseId}</div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  const renderDetailsTab = (span: TelemetrySpan) => {
+    return (
+      <div className="space-y-4">
+        <div>
+          <div className="text-xs text-gray-500 mb-1">Span ID</div>
+          <div className="text-sm text-gray-200 font-mono">{span.span_id}</div>
+        </div>
+        <div>
+          <div className="text-xs text-gray-500 mb-1">Trace ID</div>
+          <div className="text-sm text-gray-200 font-mono">{span.trace_id}</div>
+        </div>
+        {span.parent_span_id && (
+          <div>
+            <div className="text-xs text-gray-500 mb-1">Parent Span ID</div>
+            <div className="text-sm text-gray-200 font-mono">{span.parent_span_id}</div>
+          </div>
+        )}
+        <div>
+          <div className="text-xs text-gray-500 mb-1">Name</div>
+          <div className="text-sm text-gray-200">{span.name}</div>
+        </div>
+        <div>
+          <div className="text-xs text-gray-500 mb-1">Kind</div>
+          <div className="text-sm text-gray-200">{span.kind}</div>
+        </div>
+        <div>
+          <div className="text-xs text-gray-500 mb-1">Status</div>
+          <div className={`text-sm ${span.status === 'ERROR' ? 'text-red-400' : 'text-green-400'}`}>
+            {span.status}
+          </div>
+        </div>
+        <div>
+          <div className="text-xs text-gray-500 mb-1">Start Time</div>
+          <div className="text-sm text-gray-200">{new Date(span.start_time).toLocaleString()}</div>
+        </div>
+        {span.end_time && (
+          <div>
+            <div className="text-xs text-gray-500 mb-1">End Time</div>
+            <div className="text-sm text-gray-200">{new Date(span.end_time).toLocaleString()}</div>
+          </div>
+        )}
+        {span.duration_ms !== null && (
+          <div>
+            <div className="text-xs text-gray-500 mb-1">Duration</div>
+            <div className="text-sm text-gray-200">{formatDuration(span.duration_ms)}</div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  const renderRawTab = (span: TelemetrySpan) => {
+    return (
+      <pre className="text-xs bg-gray-950 p-4 rounded overflow-auto text-gray-300 font-mono">
+        {JSON.stringify(span, null, 2)}
+      </pre>
+    )
+  }
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col bg-gray-50">
       {/* Header */}
-      <div className="mb-6 flex justify-between items-center">
-        <div className="flex items-center gap-3">
-          <h1 className="text-3xl font-bold text-gray-900">Live Telemetry</h1>
-          <span className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-            isPaused ? 'bg-gray-100 text-gray-700' : 'bg-green-100 text-green-700 animate-pulse'
-          }`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${isPaused ? 'bg-gray-500' : 'bg-green-500'}`}></span>
-            {isPaused ? 'Paused' : 'Live'}
-          </span>
-          <span className="text-sm text-gray-500">
-            {filteredSpans.length} spans
-          </span>
-        </div>
-
-        {/* Controls */}
-        <div className="flex gap-2">
-          <select
-            value={filterMode}
-            onChange={(e) => setFilterMode(e.target.value as 'all' | 'llm' | 'agora')}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-          >
-            <option value="all">All Spans</option>
-            <option value="llm">LLM Calls Only</option>
-            <option value="agora">Agora Nodes Only</option>
-          </select>
-
-          <button
-            onClick={() => setAutoScroll(!autoScroll)}
-            className={`px-3 py-2 border rounded-lg text-sm font-medium transition-colors ${
-              autoScroll
-                ? 'bg-blue-50 border-blue-300 text-blue-700'
-                : 'bg-white border-gray-300 text-gray-700'
-            }`}
-          >
-            Auto-scroll: {autoScroll ? 'On' : 'Off'}
-          </button>
-
-          <button
-            onClick={() => setIsPaused(!isPaused)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              isPaused
-                ? 'bg-green-100 border border-green-300 text-green-700'
-                : 'bg-yellow-100 border border-yellow-300 text-yellow-700'
-            }`}
-          >
-            {isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
-            {isPaused ? 'Resume' : 'Pause'}
-          </button>
-
-          <button
-            onClick={clearSpans}
-            className="flex items-center gap-2 px-4 py-2 bg-red-100 border border-red-300 text-red-700 rounded-lg text-sm font-medium hover:bg-red-200 transition-colors"
-          >
-            <Trash2 className="w-4 h-4" />
-            Clear
-          </button>
+      <div className="bg-white border-b border-gray-200 px-6 py-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-gray-900">Tracing</h1>
+            <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-semibold">
+              LIVE
+            </span>
+            <span className="text-sm text-gray-500">{traces.length} traces</span>
+          </div>
         </div>
       </div>
 
-      {/* Telemetry Stream */}
-      <div className="flex-1 bg-gray-900 rounded-lg shadow-lg overflow-hidden flex flex-col">
-        <div className="flex-1 overflow-y-auto p-4 space-y-3 font-mono text-sm">
-          {filteredSpans.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-gray-500">
-              <Radio className="w-12 h-12 mb-4 opacity-50" />
-              <p className="text-lg">Waiting for telemetry data...</p>
-              <p className="text-sm mt-2">Run a workflow to see live spans here</p>
-            </div>
-          ) : (
-            filteredSpans.map((span) => {
-              const llmInfo = extractLLMInfo(span)
-              const isLLM = isLLMSpan(span)
-              const isAgora = isAgoraSpan(span)
-              const workflowName = span.execution_id ? executions.get(span.execution_id) : null
+      {/* Main Content */}
+      <div className="flex-1 overflow-hidden flex">
+        {/* Traces List */}
+        {!selectedTrace && (
+          <div className="flex-1 overflow-y-auto bg-white">
+            {traces.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-gray-400">
+                <Radio className="w-16 h-16 mb-4" />
+                <p className="text-lg font-medium">Waiting for telemetry data...</p>
+                <p className="text-sm mt-2">Run a workflow to see traces appear here</p>
+              </div>
+            ) : (
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b border-gray-200 sticky top-0">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Trace
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Spans
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <Clock className="w-4 h-4 inline mr-1" />
+                      Duration
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <Zap className="w-4 h-4 inline mr-1" />
+                      Tokens
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <DollarSign className="w-4 h-4 inline mr-1" />
+                      Cost
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Time
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {traces.map((trace) => (
+                    <tr
+                      key={trace.trace_id}
+                      onClick={() => {
+                        setSelectedTrace(trace)
+                        setSelectedSpan(trace.root_span)
+                      }}
+                      className="hover:bg-gray-50 cursor-pointer transition-colors"
+                    >
+                      <td className="px-6 py-4">
+                        <div className="text-sm font-medium text-gray-900">
+                          {trace.workflow_name || trace.root_span.name}
+                        </div>
+                        <div className="text-xs text-gray-500 font-mono">
+                          {trace.trace_id.substring(0, 16)}...
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-500">
+                        {trace.spans.length}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-900">
+                        {formatDuration(trace.duration_ms)}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-900">
+                        {trace.total_tokens > 0 ? trace.total_tokens.toLocaleString() : '-'}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-green-600 font-semibold">
+                        {trace.total_cost > 0 ? `$${trace.total_cost.toFixed(6)}` : '-'}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-500">
+                        {formatTime(trace.start_time)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
 
-              return (
-                <div
-                  key={span.id}
-                  className={`border-l-4 p-3 rounded-r ${
-                    span.status === 'ERROR'
-                      ? 'border-red-500 bg-red-950/30'
-                      : isLLM
-                        ? 'border-purple-500 bg-purple-950/20'
-                        : isAgora
-                          ? 'border-blue-500 bg-blue-950/20'
-                          : 'border-gray-600 bg-gray-800/50'
-                  }`}
+        {/* Trace Detail View */}
+        {selectedTrace && (
+          <div className="flex-1 flex">
+            {/* Left: Span List */}
+            <div className="w-80 bg-white border-r border-gray-200 overflow-y-auto">
+              <div className="sticky top-0 bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
+                <div className="text-sm font-semibold text-gray-900">Spans</div>
+                <button
+                  onClick={closeDetail}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
                 >
-                  {/* Header */}
-                  <div className="flex items-start justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-gray-400 text-xs">{formatTime(span.start_time)}</span>
-                      <span className={`font-semibold ${
-                        isLLM ? 'text-purple-400' : isAgora ? 'text-blue-400' : 'text-gray-300'
-                      }`}>
-                        {span.name}
-                      </span>
-                      {isLLM && (
-                        <span className="px-2 py-0.5 bg-purple-900/50 text-purple-300 rounded text-xs">
-                          LLM
-                        </span>
-                      )}
-                      {isAgora && (
-                        <span className="px-2 py-0.5 bg-blue-900/50 text-blue-300 rounded text-xs">
-                          NODE
-                        </span>
-                      )}
-                      {span.status === 'ERROR' && (
-                        <span className="px-2 py-0.5 bg-red-900/50 text-red-300 rounded text-xs">
-                          ERROR
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-3 text-xs">
-                      {workflowName && (
-                        <span className="text-gray-500">{workflowName}</span>
-                      )}
-                      {span.duration_ms && (
-                        <span className="text-gray-400">{formatDuration(span.duration_ms)}</span>
-                      )}
-                    </div>
-                  </div>
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="divide-y divide-gray-100">
+                {selectedTrace.spans.map((span) => {
+                  const isSelected = selectedSpan?.span_id === span.span_id
+                  const isLLM = isLLMSpan(span)
 
-                  {/* LLM-specific Info */}
-                  {isLLM && (
-                    <div className="space-y-2 mb-2">
-                      {llmInfo.provider && (
-                        <div className="flex gap-2 text-xs">
-                          <span className="text-gray-500">Provider:</span>
-                          <span className="text-purple-300">{llmInfo.provider}</span>
-                          {llmInfo.model && (
-                            <>
-                              <span className="text-gray-600">/</span>
-                              <span className="text-purple-300">{llmInfo.model}</span>
-                            </>
-                          )}
-                        </div>
-                      )}
-
-                      {llmInfo.promptPreview && (
-                        <div className="bg-gray-800/80 p-2 rounded border border-purple-900/50">
-                          <div className="text-xs text-purple-400 mb-1 font-semibold">Prompt:</div>
-                          <div className="text-gray-300 text-xs whitespace-pre-wrap break-words">
-                            {String(llmInfo.promptPreview).slice(0, 500)}
-                            {String(llmInfo.promptPreview).length > 500 && '...'}
+                  return (
+                    <div
+                      key={span.span_id}
+                      onClick={() => {
+                        setSelectedSpan(span)
+                        if (isLLM) {
+                          setActiveTab('prompt')
+                        } else {
+                          setActiveTab('details')
+                        }
+                      }}
+                      className={`px-4 py-3 cursor-pointer transition-colors ${
+                        isSelected ? 'bg-blue-50 border-l-4 border-l-blue-500' : 'hover:bg-gray-50 border-l-4 border-l-transparent'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <ChevronRight className={`w-4 h-4 text-gray-400 ${isSelected ? 'rotate-90' : ''}`} />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-gray-900 truncate">
+                            {span.name}
+                          </div>
+                          <div className="flex items-center gap-2 mt-1">
+                            {isLLM && (
+                              <span className="px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded text-xs font-semibold">
+                                LLM
+                              </span>
+                            )}
+                            {span.duration_ms && (
+                              <span className="text-xs text-gray-500">
+                                {formatDuration(span.duration_ms)}
+                              </span>
+                            )}
                           </div>
                         </div>
-                      )}
-
-                      {llmInfo.responsePreview && (
-                        <div className="bg-gray-800/80 p-2 rounded border border-purple-900/50">
-                          <div className="text-xs text-purple-400 mb-1 font-semibold">Response:</div>
-                          <div className="text-gray-300 text-xs whitespace-pre-wrap break-words">
-                            {String(llmInfo.responsePreview).slice(0, 500)}
-                            {String(llmInfo.responsePreview).length > 500 && '...'}
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="flex gap-4 text-xs">
-                        {span.tokens_used && (
-                          <span className="text-gray-400">
-                            Tokens: <span className="text-purple-300 font-semibold">{span.tokens_used}</span>
-                          </span>
-                        )}
-                        {llmInfo.promptTokens && (
-                          <span className="text-gray-400">
-                            ({llmInfo.promptTokens} + {llmInfo.completionTokens})
-                          </span>
-                        )}
-                        {span.estimated_cost && (
-                          <span className="text-gray-400">
-                            Cost: <span className="text-green-400 font-semibold">${span.estimated_cost.toFixed(6)}</span>
-                          </span>
-                        )}
-                        {llmInfo.temperature && (
-                          <span className="text-gray-400">
-                            Temp: <span className="text-gray-300">{llmInfo.temperature}</span>
-                          </span>
-                        )}
                       </div>
                     </div>
-                  )}
+                  )
+                })}
+              </div>
+            </div>
 
-                  {/* Agora Node Info */}
-                  {isAgora && span.attributes?.['agora.node'] && (
-                    <div className="text-xs mb-2">
-                      <span className="text-gray-500">Node: </span>
-                      <span className="text-blue-300">{span.attributes['agora.node']}</span>
-                    </div>
-                  )}
-
-                  {/* Span IDs */}
-                  <div className="flex gap-4 text-xs text-gray-600">
-                    <span>Span: {span.span_id.substring(0, 8)}</span>
-                    <span>Trace: {span.trace_id.substring(0, 16)}</span>
-                    {span.parent_span_id && (
-                      <span>Parent: {span.parent_span_id.substring(0, 8)}</span>
-                    )}
-                  </div>
-
-                  {/* All Attributes (collapsed by default) */}
-                  {Object.keys(span.attributes || {}).length > 0 && (
-                    <details className="mt-2">
-                      <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-400">
-                        View all {Object.keys(span.attributes).length} attributes
-                      </summary>
-                      <pre className="mt-2 text-xs bg-gray-950/50 p-2 rounded overflow-x-auto text-gray-400">
-                        {JSON.stringify(span.attributes, null, 2)}
-                      </pre>
-                    </details>
-                  )}
+            {/* Right: Span Inspector */}
+            {selectedSpan && (
+              <div className="flex-1 bg-gray-900 flex flex-col">
+                {/* Tabs */}
+                <div className="bg-gray-800 border-b border-gray-700 flex gap-1 px-4">
+                  {isLLMSpan(selectedSpan) ? (
+                    <>
+                      <button
+                        onClick={() => setActiveTab('prompt')}
+                        className={`px-4 py-3 text-sm font-medium transition-colors ${
+                          activeTab === 'prompt'
+                            ? 'text-white border-b-2 border-blue-500'
+                            : 'text-gray-400 hover:text-gray-300'
+                        }`}
+                      >
+                        Prompt
+                      </button>
+                      <button
+                        onClick={() => setActiveTab('completions')}
+                        className={`px-4 py-3 text-sm font-medium transition-colors ${
+                          activeTab === 'completions'
+                            ? 'text-white border-b-2 border-blue-500'
+                            : 'text-gray-400 hover:text-gray-300'
+                        }`}
+                      >
+                        Completions
+                      </button>
+                      <button
+                        onClick={() => setActiveTab('llm_data')}
+                        className={`px-4 py-3 text-sm font-medium transition-colors ${
+                          activeTab === 'llm_data'
+                            ? 'text-white border-b-2 border-blue-500'
+                            : 'text-gray-400 hover:text-gray-300'
+                        }`}
+                      >
+                        LLM Data
+                      </button>
+                    </>
+                  ) : null}
+                  <button
+                    onClick={() => setActiveTab('details')}
+                    className={`px-4 py-3 text-sm font-medium transition-colors ${
+                      activeTab === 'details'
+                        ? 'text-white border-b-2 border-blue-500'
+                        : 'text-gray-400 hover:text-gray-300'
+                    }`}
+                  >
+                    Details
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('raw')}
+                    className={`px-4 py-3 text-sm font-medium transition-colors ${
+                      activeTab === 'raw'
+                        ? 'text-white border-b-2 border-blue-500'
+                        : 'text-gray-400 hover:text-gray-300'
+                    }`}
+                  >
+                    Raw
+                  </button>
                 </div>
-              )
-            })
-          )}
-          <div ref={bottomRef} />
-        </div>
+
+                {/* Tab Content */}
+                <div className="flex-1 overflow-y-auto p-6">
+                  {activeTab === 'prompt' && renderPromptTab(selectedSpan)}
+                  {activeTab === 'completions' && renderCompletionsTab(selectedSpan)}
+                  {activeTab === 'llm_data' && renderLLMDataTab(selectedSpan)}
+                  {activeTab === 'details' && renderDetailsTab(selectedSpan)}
+                  {activeTab === 'raw' && renderRawTab(selectedSpan)}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
