@@ -26,10 +26,26 @@ interface Trace {
   spans: TelemetrySpan[]
   root_span: TelemetrySpan
   start_time: string
+  end_time: string
   duration_ms: number
   total_tokens: number
   total_cost: number
   workflow_name?: string
+  execution_id?: string
+  // Aggregated LLM info
+  llm_calls_count: number
+  total_prompt_tokens: number
+  total_completion_tokens: number
+  models_used: string[]
+  providers_used: string[]
+  // Status tracking
+  has_errors: boolean
+  error_count: number
+  success_count: number
+  // Performance metrics
+  avg_duration_ms: number
+  max_duration_ms: number
+  min_duration_ms: number
 }
 
 export default function LiveTelemetry() {
@@ -95,11 +111,44 @@ export default function LiveTelemetry() {
       )
 
       const rootSpan = sortedSpans.find(s => !s.parent_span_id) || sortedSpans[0]
+
+      // Calculate times
+      const minTime = Math.min(...sortedSpans.map(s => new Date(s.start_time).getTime()))
+      const maxTime = Math.max(...sortedSpans.map(s => new Date(s.end_time || s.start_time).getTime()))
+
+      // Token aggregation
       const totalTokens = traceSpans.reduce((sum, s) => sum + (s.tokens_used || 0), 0)
       const totalCost = traceSpans.reduce((sum, s) => sum + (s.estimated_cost || 0), 0)
 
-      const minTime = Math.min(...sortedSpans.map(s => new Date(s.start_time).getTime()))
-      const maxTime = Math.max(...sortedSpans.map(s => new Date(s.end_time || s.start_time).getTime()))
+      // LLM-specific metrics
+      const llmSpans = traceSpans.filter(s => isLLMSpan(s))
+      const totalPromptTokens = llmSpans.reduce((sum, s) => {
+        const llmInfo = extractLLMInfo(s)
+        return sum + llmInfo.promptTokens
+      }, 0)
+      const totalCompletionTokens = llmSpans.reduce((sum, s) => {
+        const llmInfo = extractLLMInfo(s)
+        return sum + llmInfo.completionTokens
+      }, 0)
+
+      // Extract unique models and providers
+      const models = new Set<string>()
+      const providers = new Set<string>()
+      llmSpans.forEach(s => {
+        const llmInfo = extractLLMInfo(s)
+        if (llmInfo.model) models.add(llmInfo.model)
+        if (llmInfo.provider) providers.add(llmInfo.provider)
+      })
+
+      // Status tracking
+      const errorSpans = traceSpans.filter(s => s.status === 'ERROR')
+      const successSpans = traceSpans.filter(s => s.status === 'OK')
+
+      // Performance metrics
+      const durations = sortedSpans.filter(s => s.duration_ms !== null).map(s => s.duration_ms!)
+      const avgDuration = durations.length > 0 ? durations.reduce((a, b) => a + b, 0) / durations.length : 0
+      const maxDuration = durations.length > 0 ? Math.max(...durations) : 0
+      const minDuration = durations.length > 0 ? Math.min(...durations) : 0
 
       const workflowName = rootSpan.execution_id ? executions.get(rootSpan.execution_id) : undefined
 
@@ -108,10 +157,23 @@ export default function LiveTelemetry() {
         spans: sortedSpans,
         root_span: rootSpan,
         start_time: new Date(minTime).toISOString(),
+        end_time: new Date(maxTime).toISOString(),
         duration_ms: maxTime - minTime,
         total_tokens: totalTokens,
         total_cost: totalCost,
-        workflow_name
+        workflow_name,
+        execution_id: rootSpan.execution_id || undefined,
+        llm_calls_count: llmSpans.length,
+        total_prompt_tokens: totalPromptTokens,
+        total_completion_tokens: totalCompletionTokens,
+        models_used: Array.from(models),
+        providers_used: Array.from(providers),
+        has_errors: errorSpans.length > 0,
+        error_count: errorSpans.length,
+        success_count: successSpans.length,
+        avg_duration_ms: avgDuration,
+        max_duration_ms: maxDuration,
+        min_duration_ms: minDuration
       }
     })
 
@@ -417,6 +479,12 @@ export default function LiveTelemetry() {
                       Trace
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Model / Provider
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Spans
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -444,7 +512,9 @@ export default function LiveTelemetry() {
                         setSelectedTrace(trace)
                         setSelectedSpan(trace.root_span)
                       }}
-                      className="hover:bg-gray-50 cursor-pointer transition-colors"
+                      className={`hover:bg-gray-50 cursor-pointer transition-colors ${
+                        trace.has_errors ? 'bg-red-50' : ''
+                      }`}
                     >
                       <td className="px-6 py-4">
                         <div className="text-sm font-medium text-gray-900">
@@ -453,18 +523,76 @@ export default function LiveTelemetry() {
                         <div className="text-xs text-gray-500 font-mono">
                           {trace.trace_id.substring(0, 16)}...
                         </div>
+                        {trace.llm_calls_count > 0 && (
+                          <div className="mt-1">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">
+                              {trace.llm_calls_count} LLM call{trace.llm_calls_count > 1 ? 's' : ''}
+                            </span>
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-6 py-4">
+                        {trace.models_used.length > 0 ? (
+                          <div className="space-y-1">
+                            {trace.models_used.map((model, idx) => (
+                              <div key={idx} className="text-sm text-gray-900">{model}</div>
+                            ))}
+                            {trace.providers_used.length > 0 && (
+                              <div className="text-xs text-gray-500">
+                                {trace.providers_used.join(', ')}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-sm text-gray-400">-</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4">
+                        {trace.has_errors ? (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                            {trace.error_count} error{trace.error_count > 1 ? 's' : ''}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                            Success
+                          </span>
+                        )}
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-500">
                         {trace.spans.length}
                       </td>
-                      <td className="px-6 py-4 text-sm text-gray-900">
-                        {formatDuration(trace.duration_ms)}
+                      <td className="px-6 py-4">
+                        <div className="text-sm text-gray-900">{formatDuration(trace.duration_ms)}</div>
+                        {trace.avg_duration_ms > 0 && (
+                          <div className="text-xs text-gray-500">
+                            avg {formatDuration(trace.avg_duration_ms)}
+                          </div>
+                        )}
                       </td>
-                      <td className="px-6 py-4 text-sm text-gray-900">
-                        {trace.total_tokens > 0 ? trace.total_tokens.toLocaleString() : '-'}
+                      <td className="px-6 py-4">
+                        {trace.total_tokens > 0 ? (
+                          <div>
+                            <div className="text-sm text-gray-900">
+                              {trace.total_tokens.toLocaleString()}
+                            </div>
+                            {trace.llm_calls_count > 0 && (
+                              <div className="text-xs text-gray-500">
+                                {trace.total_prompt_tokens} + {trace.total_completion_tokens}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-sm text-gray-400">-</span>
+                        )}
                       </td>
-                      <td className="px-6 py-4 text-sm text-green-600 font-semibold">
-                        {trace.total_cost > 0 ? `$${trace.total_cost.toFixed(6)}` : '-'}
+                      <td className="px-6 py-4">
+                        {trace.total_cost > 0 ? (
+                          <span className="text-sm text-green-600 font-semibold">
+                            ${trace.total_cost.toFixed(6)}
+                          </span>
+                        ) : (
+                          <span className="text-sm text-gray-400">-</span>
+                        )}
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-500">
                         {formatTime(trace.start_time)}
@@ -479,18 +607,108 @@ export default function LiveTelemetry() {
 
         {/* Trace Detail View */}
         {selectedTrace && (
-          <div className="flex-1 flex">
-            {/* Left: Span List */}
-            <div className="w-80 bg-white border-r border-gray-200 overflow-y-auto">
-              <div className="sticky top-0 bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
-                <div className="text-sm font-semibold text-gray-900">Spans</div>
+          <div className="flex-1 flex flex-col">
+            {/* Trace Summary Header */}
+            <div className="bg-white border-b border-gray-200 px-6 py-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <h2 className="text-xl font-bold text-gray-900">
+                    {selectedTrace.workflow_name || selectedTrace.root_span.name}
+                  </h2>
+                  {selectedTrace.has_errors ? (
+                    <span className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-semibold">
+                      {selectedTrace.error_count} ERROR{selectedTrace.error_count > 1 ? 'S' : ''}
+                    </span>
+                  ) : (
+                    <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-semibold">
+                      SUCCESS
+                    </span>
+                  )}
+                </div>
                 <button
                   onClick={closeDetail}
                   className="text-gray-400 hover:text-gray-600 transition-colors"
                 >
-                  <X className="w-4 h-4" />
+                  <X className="w-5 h-5" />
                 </button>
               </div>
+
+              {/* Comprehensive Trace Stats Grid */}
+              <div className="grid grid-cols-6 gap-4">
+                <div>
+                  <div className="text-xs text-gray-500 mb-1">Trace ID</div>
+                  <div className="text-sm font-mono text-gray-900">{selectedTrace.trace_id.substring(0, 16)}...</div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500 mb-1">Total Spans</div>
+                  <div className="text-sm font-semibold text-gray-900">{selectedTrace.spans.length}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500 mb-1">Duration</div>
+                  <div className="text-sm font-semibold text-gray-900">{formatDuration(selectedTrace.duration_ms)}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500 mb-1">Total Tokens</div>
+                  <div className="text-sm font-semibold text-gray-900">
+                    {selectedTrace.total_tokens > 0 ? selectedTrace.total_tokens.toLocaleString() : '-'}
+                  </div>
+                  {selectedTrace.llm_calls_count > 0 && (
+                    <div className="text-xs text-gray-500">
+                      {selectedTrace.total_prompt_tokens} in + {selectedTrace.total_completion_tokens} out
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500 mb-1">Total Cost</div>
+                  <div className="text-sm font-semibold text-green-600">
+                    {selectedTrace.total_cost > 0 ? `$${selectedTrace.total_cost.toFixed(6)}` : '-'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500 mb-1">Started</div>
+                  <div className="text-sm text-gray-900">{formatTime(selectedTrace.start_time)}</div>
+                </div>
+              </div>
+
+              {/* LLM Specific Stats */}
+              {selectedTrace.llm_calls_count > 0 && (
+                <div className="mt-3 pt-3 border-t border-gray-200 grid grid-cols-5 gap-4">
+                  <div>
+                    <div className="text-xs text-gray-500 mb-1">LLM Calls</div>
+                    <div className="text-sm font-semibold text-purple-600">{selectedTrace.llm_calls_count}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-gray-500 mb-1">Models Used</div>
+                    <div className="text-sm text-gray-900">
+                      {selectedTrace.models_used.length > 0 ? selectedTrace.models_used.join(', ') : '-'}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-gray-500 mb-1">Providers</div>
+                    <div className="text-sm text-gray-900">
+                      {selectedTrace.providers_used.length > 0 ? selectedTrace.providers_used.join(', ') : '-'}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-gray-500 mb-1">Avg Duration</div>
+                    <div className="text-sm text-gray-900">{formatDuration(selectedTrace.avg_duration_ms)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-gray-500 mb-1">Duration Range</div>
+                    <div className="text-sm text-gray-900">
+                      {formatDuration(selectedTrace.min_duration_ms)} - {formatDuration(selectedTrace.max_duration_ms)}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex-1 flex overflow-hidden">
+              {/* Left: Span List */}
+              <div className="w-80 bg-white border-r border-gray-200 overflow-y-auto">
+                <div className="sticky top-0 bg-white border-b border-gray-200 px-4 py-3">
+                  <div className="text-sm font-semibold text-gray-900">Spans ({selectedTrace.spans.length})</div>
+                </div>
               <div className="divide-y divide-gray-100">
                 {selectedTrace.spans.map((span) => {
                   const isSelected = selectedSpan?.span_id === span.span_id
@@ -608,6 +826,7 @@ export default function LiveTelemetry() {
                 </div>
               </div>
             )}
+            </div>
           </div>
         )}
       </div>
