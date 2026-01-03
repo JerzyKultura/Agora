@@ -21,7 +21,7 @@ from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProces
 from traceloop.sdk import Traceloop
 from agora import AsyncNode, AsyncFlow, AsyncBatchNode, AsyncParallelBatchNode
 import os, time, asyncio, inspect, functools
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional, Sequence, Any, List, Dict
 import json
 from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
@@ -65,13 +65,6 @@ def init_agora(
 
     if _initialized:
         return
-
-    # Try to apply nest_asyncio for notebook environments (Colab/Jupyter)
-    try:
-        import nest_asyncio
-        nest_asyncio.apply()
-    except ImportError:
-        pass
 
     # Try to load .env file
     try:
@@ -120,7 +113,7 @@ def init_agora(
         class SupabaseSpanExporter(SpanExporter):
             def export(self, spans: Sequence[ReadableSpan]) -> SpanExportResult:
                 global cloud_uploader
-                if not cloud_uploader or not cloud_uploader.enabled or not cloud_uploader.execution_id:
+                if not cloud_uploader or not cloud_uploader.enabled:
                     return SpanExportResult.SUCCESS
 
                 formatted = []
@@ -397,14 +390,14 @@ class TracedAsyncNode(AsyncNode):
             span.set_attribute("agora.node", self.name)
             span.set_attribute("agora.kind", "node")
             node_start = time.time()
-            started_at = datetime.now(timezone.utc)
+            started_at = datetime.utcnow()
             await self.before_run_async(shared)
             try:
                 prep_res = await self._traced_prep(shared)
                 exec_res = await self._exec_async(prep_res)
                 post_res = await self._traced_post(shared, prep_res, exec_res)
                 await self.after_run_async(shared)
-                completed_at = datetime.now(timezone.utc)
+                completed_at = datetime.utcnow()
                 total_duration = int((time.time() - node_start) * 1000)
                 span.set_attribute("total_duration_ms", total_duration)
 
@@ -422,7 +415,7 @@ class TracedAsyncNode(AsyncNode):
                 return post_res
             except Exception as exc:
                 span.record_exception(exc)
-                completed_at = datetime.now(timezone.utc)
+                completed_at = datetime.utcnow()
 
                 if cloud_uploader and cloud_uploader.enabled and cloud_uploader.execution_id:
                     await cloud_uploader.add_node_execution(
