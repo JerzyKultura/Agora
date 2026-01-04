@@ -128,7 +128,7 @@ def init_agora(
                 if not cloud_uploader or not cloud_uploader.enabled:
                     return SpanExportResult.SUCCESS
 
-                print(f"DEBUG: SupabaseSpanExporter.export() called with {len(spans)} span(s)")
+
 
                 formatted = []
                 for span in spans:
@@ -165,25 +165,14 @@ def init_agora(
                     })
 
                 if formatted:
-                    print(f"DEBUG: Formatted {len(formatted)} span(s), calling add_spans()...")
-                    # Run async upload in a way that doesn't block
                     try:
-                        # Try to get the current event loop
                         try:
                             loop = asyncio.get_running_loop()
-                            # If we get here, there's a running loop - create a task
-                            print("DEBUG: Event loop is running, creating task")
                             loop.create_task(cloud_uploader.add_spans(formatted))
                         except RuntimeError:
-                            # No running loop - use asyncio.run() to create one
-                            print("DEBUG: No event loop running, using asyncio.run()")
                             asyncio.run(cloud_uploader.add_spans(formatted))
-                    except Exception as e:
-                        print(f"DEBUG: Internal span export error: {e}")
-                        import traceback
-                        traceback.print_exc()
-                else:
-                    print("DEBUG: No formatted spans to export")
+                    except Exception:
+                        pass  # Silently ignore upload errors
 
                 return SpanExportResult.SUCCESS
 
@@ -202,19 +191,13 @@ def init_agora(
     tracer = trace.get_tracer("agora_tracer")
 
     if enable_cloud_upload and SUPABASE_UPLOADER_AVAILABLE:
-        print(f"DEBUG: Creating SupabaseUploader for {project_name or app_name}")
         cloud_uploader = SupabaseUploader(
             project_name=project_name or app_name,
             api_key=api_key
         )
-        # Set batch size to 1 for immediate flushing (better for demos/debugging)
-        cloud_uploader.batch_size = 1
-        print(f"DEBUG: Set batch_size to {cloud_uploader.batch_size} for immediate flushing")
+        cloud_uploader.batch_size = 1  # Immediate flushing
     elif enable_cloud_upload and not SUPABASE_UPLOADER_AVAILABLE:
-        print("DEBUG: SUPABASE_UPLOADER_AVAILABLE is False")
         print("⚠️  Supabase upload not available (install supabase-py: pip install supabase)")
-    else:
-        print(f"DEBUG: Cloud upload disabled (enable_cloud_upload={enable_cloud_upload})")
 
     _initialized = True
     print(f"✅ Traceloop initialized: {app_name}")
@@ -261,9 +244,7 @@ def agora_node(name=None, max_retries=1, wait=0, capture_io=None):
         # Capture the original function's source code
         try:
             actual_code = inspect.getsource(func)
-            print(f"DEBUG: Captured code for '{node_name}' ({len(actual_code) if actual_code else 0} chars)")
-        except Exception as e:
-            print(f"DEBUG: Failed to capture code for '{node_name}': {e}")
+        except Exception:
             actual_code = None
 
         # Create a custom node class dynamically
