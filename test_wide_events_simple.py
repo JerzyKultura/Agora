@@ -74,17 +74,15 @@ print()
 print("2️⃣ Initializing Telemetry...")
 print()
 
-from traceloop.sdk import Traceloop
-Traceloop.init(app_name="wide-events-test", disable_batch=True)
-print("✅ Traceloop initialized")
-
+# IMPORTANT: Only call init_agora(), NOT Traceloop.init()
+# init_agora() will initialize Traceloop with the correct processors
 from agora.agora_tracer import init_agora
 init_agora(
     app_name="wide-events-test",
     project_name="Wide Events Test",
     enable_cloud_upload=True
 )
-print("✅ Agora initialized")
+print("✅ Telemetry initialized")
 
 print()
 print("=" * 70)
