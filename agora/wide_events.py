@@ -22,6 +22,12 @@ This makes debugging and analytics WAY more powerful.
 from typing import Dict, Any, Optional
 from opentelemetry import trace
 from opentelemetry.trace import Span
+from opentelemetry.sdk.trace import SpanProcessor, ReadableSpan
+from opentelemetry.sdk.trace.export import SpanExportResult
+from contextvars import ContextVar
+
+# Thread-safe storage for current business context
+_current_business_context: ContextVar[Optional['BusinessContext']] = ContextVar('business_context', default=None)
 
 
 class BusinessContext:
@@ -252,3 +258,84 @@ def enrich_with_feature_flags(flags: Dict[str, bool]):
     """
     context = BusinessContext(feature_flags=flags)
     enrich_current_span(context)
+
+
+# ============================================================================
+# PLUG-AND-PLAY API: Set context once, enriches ALL spans automatically!
+# ============================================================================
+
+def set_business_context(context: Optional[BusinessContext] = None, **kwargs) -> None:
+    """
+    Set the business context that will be automatically added to ALL future spans.
+
+    This is the EASIEST way to use wide events - just set the context once,
+    and every LLM call will automatically include it!
+
+    Args:
+        context: A BusinessContext object, OR
+        **kwargs: Pass context fields directly (user_id, subscription_tier, etc.)
+
+    Example 1 - Pass a BusinessContext:
+        context = BusinessContext(user_id="user_123", subscription_tier="premium")
+        set_business_context(context)
+
+        # Now ALL LLM calls automatically get enriched!
+        response = client.chat.completions.create(...)  # ✅ Has business context!
+
+    Example 2 - Pass kwargs directly:
+        set_business_context(
+            user_id="user_123",
+            subscription_tier="premium",
+            lifetime_value_cents=50000,
+            feature_flags={"new_ui": True}
+        )
+
+        # Now ALL LLM calls automatically get enriched!
+        response = client.chat.completions.create(...)  # ✅ Has business context!
+    """
+    if context is None and kwargs:
+        context = BusinessContext(**kwargs)
+
+    _current_business_context.set(context)
+
+
+def get_business_context() -> Optional[BusinessContext]:
+    """Get the currently set business context."""
+    return _current_business_context.get()
+
+
+def clear_business_context() -> None:
+    """Clear the business context (stop enriching spans)."""
+    _current_business_context.set(None)
+
+
+class BusinessContextSpanProcessor(SpanProcessor):
+    """
+    Span processor that automatically enriches ALL spans with business context.
+
+    This is what makes the plug-and-play API work! When you call set_business_context(),
+    this processor reads it and adds it to every span that gets created.
+    """
+
+    def on_start(self, span: Span, parent_context=None) -> None:
+        """Called when a span starts - enrich it with business context if set."""
+        context = get_business_context()
+        if context:
+            try:
+                attributes = context.to_attributes()
+                span.set_attributes(attributes)
+            except Exception as e:
+                # Don't crash the span if enrichment fails
+                print(f"⚠️  Failed to enrich span with business context: {e}")
+
+    def on_end(self, span: ReadableSpan) -> None:
+        """Called when a span ends - nothing to do."""
+        pass
+
+    def shutdown(self) -> None:
+        """Called on shutdown - nothing to do."""
+        pass
+
+    def force_flush(self, timeout_millis: int = 30000) -> bool:
+        """Called to force flush - nothing to do."""
+        return True
