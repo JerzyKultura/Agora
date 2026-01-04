@@ -483,50 +483,116 @@ export default function Monitoring() {
   }
 
   const renderDetailsTab = (span: TelemetrySpan) => {
+    const attrs = span.attributes || {}
+
+    // Separate business context attributes from technical attributes
+    const businessContext: Record<string, any> = {}
+    const technicalDetails: Record<string, any> = {}
+
+    Object.entries(attrs).forEach(([key, value]) => {
+      // Business context attributes (from wide_events)
+      if (key.startsWith('user.') ||
+          key.startsWith('session.') ||
+          key.startsWith('feature_flags.') ||
+          key.startsWith('app.') ||
+          key.startsWith('business.') ||
+          key.startsWith('custom.')) {
+        businessContext[key] = value
+      } else {
+        technicalDetails[key] = value
+      }
+    })
+
     return (
-      <div className="space-y-4">
+      <div className="space-y-6">
+        {/* Technical Details */}
         <div>
-          <div className="text-xs text-gray-500 mb-1">Span ID</div>
-          <div className="text-sm text-gray-200 font-mono">{span.span_id}</div>
+          <div className="text-sm font-semibold text-gray-300 mb-3 pb-2 border-b border-gray-700">
+            Technical Details
+          </div>
+          <div className="space-y-3">
+            <div>
+              <div className="text-xs text-gray-500 mb-1">Span ID</div>
+              <div className="text-sm text-gray-200 font-mono">{span.span_id}</div>
+            </div>
+            <div>
+              <div className="text-xs text-gray-500 mb-1">Trace ID</div>
+              <div className="text-sm text-gray-200 font-mono">{span.trace_id}</div>
+            </div>
+            {span.parent_span_id && (
+              <div>
+                <div className="text-xs text-gray-500 mb-1">Parent Span ID</div>
+                <div className="text-sm text-gray-200 font-mono">{span.parent_span_id}</div>
+              </div>
+            )}
+            <div>
+              <div className="text-xs text-gray-500 mb-1">Name</div>
+              <div className="text-sm text-gray-200">{span.name}</div>
+            </div>
+            <div>
+              <div className="text-xs text-gray-500 mb-1">Kind</div>
+              <div className="text-sm text-gray-200">{span.kind}</div>
+            </div>
+            <div>
+              <div className="text-xs text-gray-500 mb-1">Status</div>
+              <div className={`text-sm ${span.status === 'ERROR' ? 'text-red-400' : 'text-green-400'}`}>
+                {span.status}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-gray-500 mb-1">Start Time</div>
+              <div className="text-sm text-gray-200">{new Date(span.start_time).toLocaleString()}</div>
+            </div>
+            {span.end_time && (
+              <div>
+                <div className="text-xs text-gray-500 mb-1">End Time</div>
+                <div className="text-sm text-gray-200">{new Date(span.end_time).toLocaleString()}</div>
+              </div>
+            )}
+            {span.duration_ms !== null && (
+              <div>
+                <div className="text-xs text-gray-500 mb-1">Duration</div>
+                <div className="text-sm text-gray-200">{formatDuration(span.duration_ms)}</div>
+              </div>
+            )}
+          </div>
         </div>
-        <div>
-          <div className="text-xs text-gray-500 mb-1">Trace ID</div>
-          <div className="text-sm text-gray-200 font-mono">{span.trace_id}</div>
-        </div>
-        {span.parent_span_id && (
+
+        {/* Business Context - THE KEY FEATURE! */}
+        {Object.keys(businessContext).length > 0 && (
           <div>
-            <div className="text-xs text-gray-500 mb-1">Parent Span ID</div>
-            <div className="text-sm text-gray-200 font-mono">{span.parent_span_id}</div>
+            <div className="text-sm font-semibold text-green-400 mb-3 pb-2 border-b border-green-900/50">
+              🎯 Business Context (Wide Events)
+            </div>
+            <div className="space-y-2">
+              {Object.entries(businessContext).sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => (
+                <div key={key} className="bg-green-900/10 rounded p-2 border border-green-900/30">
+                  <div className="text-xs text-green-400 mb-1 font-mono">{key}</div>
+                  <div className="text-sm text-gray-200">
+                    {typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
-        <div>
-          <div className="text-xs text-gray-500 mb-1">Name</div>
-          <div className="text-sm text-gray-200">{span.name}</div>
-        </div>
-        <div>
-          <div className="text-xs text-gray-500 mb-1">Kind</div>
-          <div className="text-sm text-gray-200">{span.kind}</div>
-        </div>
-        <div>
-          <div className="text-xs text-gray-500 mb-1">Status</div>
-          <div className={`text-sm ${span.status === 'ERROR' ? 'text-red-400' : 'text-green-400'}`}>
-            {span.status}
-          </div>
-        </div>
-        <div>
-          <div className="text-xs text-gray-500 mb-1">Start Time</div>
-          <div className="text-sm text-gray-200">{new Date(span.start_time).toLocaleString()}</div>
-        </div>
-        {span.end_time && (
+
+        {/* Other Attributes */}
+        {Object.keys(technicalDetails).length > 0 && (
           <div>
-            <div className="text-xs text-gray-500 mb-1">End Time</div>
-            <div className="text-sm text-gray-200">{new Date(span.end_time).toLocaleString()}</div>
-          </div>
-        )}
-        {span.duration_ms !== null && (
-          <div>
-            <div className="text-xs text-gray-500 mb-1">Duration</div>
-            <div className="text-sm text-gray-200">{formatDuration(span.duration_ms)}</div>
+            <div className="text-sm font-semibold text-gray-300 mb-3 pb-2 border-b border-gray-700">
+              Other Attributes
+            </div>
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              {Object.entries(technicalDetails).sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => (
+                <div key={key} className="bg-gray-800/50 rounded p-2">
+                  <div className="text-xs text-gray-500 mb-1 font-mono">{key}</div>
+                  <div className="text-xs text-gray-300 font-mono break-all">
+                    {typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
