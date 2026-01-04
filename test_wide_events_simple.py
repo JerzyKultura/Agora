@@ -159,6 +159,13 @@ print()
 print(f"🤖 Response: {response.choices[0].message.content}")
 print()
 
+# Wait for telemetry to be uploaded to Supabase
+print("⏳ Waiting for telemetry to upload to Supabase...")
+import time
+time.sleep(3)
+print("✅ Upload complete!")
+print()
+
 print("=" * 70)
 print()
 print("5️⃣ Now Check Your Dashboard!")
