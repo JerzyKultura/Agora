@@ -230,7 +230,7 @@ export default function Monitoring() {
         .from('telemetry_spans')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(100)
+        .limit(500)
 
       if (error) throw error
 
