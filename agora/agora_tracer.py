@@ -156,11 +156,14 @@ def init_agora(
                     print(f"DEBUG: Formatted {len(formatted)} span(s), calling add_spans()...")
                     # Run async upload in a way that doesn't block
                     try:
-                        loop = asyncio.get_event_loop()
-                        if loop.is_running():
+                        # Try to get the current event loop
+                        try:
+                            loop = asyncio.get_running_loop()
+                            # If we get here, there's a running loop - create a task
                             print("DEBUG: Event loop is running, creating task")
                             loop.create_task(cloud_uploader.add_spans(formatted))
-                        else:
+                        except RuntimeError:
+                            # No running loop - use asyncio.run() to create one
                             print("DEBUG: No event loop running, using asyncio.run()")
                             asyncio.run(cloud_uploader.add_spans(formatted))
                     except Exception as e:
