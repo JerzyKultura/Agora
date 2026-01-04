@@ -136,21 +136,37 @@ print(f"   - Feature Flags: {len(context.feature_flags)} flags")
 print(f"   - Custom Attrs: {len(context.custom)} attributes")
 print()
 
-# Enrich the span BEFORE making the LLM call
-enrich_current_span(context)
-print("✅ Span enriched with business context")
-print()
+# Make the LLM call WITH business context
+print("📞 Calling OpenAI with business context...")
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 
-# Make the LLM call
-print("📞 Calling OpenAI...")
-response = client.chat.completions.create(
-    model="gpt-4o-mini",
-    messages=[
-        {"role": "system", "content": "You are a test assistant."},
-        {"role": "user", "content": "Say 'Business context test successful!' in one sentence."}
-    ],
-    max_tokens=50
-)
+tracer = trace.get_tracer(__name__)
+
+# Create a parent span and enrich it
+with tracer.start_as_current_span("chat_with_context") as parent_span:
+    # Enrich the parent span
+    attrs = context.to_attributes()
+    parent_span.set_attributes(attrs)
+    print(f"✅ Parent span enriched with {len(attrs)} attributes")
+
+    # Make the LLM call (this creates a child span via Traceloop)
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "You are a test assistant."},
+            {"role": "user", "content": "Say 'Business context test successful!' in one sentence."}
+        ],
+        max_tokens=50
+    )
+
+    # Try to enrich the child span too (if we can access it)
+    current_span = trace.get_current_span()
+    if current_span and current_span != parent_span:
+        current_span.set_attributes(attrs)
+        print("✅ Child span also enriched")
+
+    parent_span.set_status(Status(StatusCode.OK))
 
 print("✅ LLM call complete!")
 print()
