@@ -164,6 +164,18 @@ time.sleep(3)
 print("✅ Upload complete!")
 print()
 
+# Complete the execution so it shows as "success" instead of "running"
+print("📝 Marking execution as complete...")
+from agora import agora_tracer
+import asyncio
+if agora_tracer.cloud_uploader:
+    asyncio.run(agora_tracer.cloud_uploader.complete_execution(
+        status="success",
+        output_data={"message": "Business context test successful!"}
+    ))
+    print("✅ Execution marked as success!")
+print()
+
 print("=" * 70)
 print()
 print("5️⃣ Now Check Your Dashboard!")
