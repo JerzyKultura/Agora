@@ -9,10 +9,24 @@ import sys
 
 # Load .env file FIRST
 from dotenv import load_dotenv
-load_dotenv()
+import pathlib
+
+# Get the directory where this script is located
+script_dir = pathlib.Path(__file__).parent.resolve()
+env_file = script_dir / ".env"
 
 print("=" * 70)
 print("🔍 Testing Wide Events Business Context")
+print("=" * 70)
+print()
+print(f"📁 Script directory: {script_dir}")
+print(f"📄 Looking for .env at: {env_file}")
+print(f"📄 .env exists: {env_file.exists()}")
+
+# Load the .env file
+loaded = load_dotenv(env_file)
+print(f"📄 .env loaded: {loaded}")
+print()
 print("=" * 70)
 print()
 
@@ -26,7 +40,11 @@ openai_key = os.getenv("OPENAI_API_KEY")
 
 if not supabase_url:
     print("❌ VITE_SUPABASE_URL not set!")
-    print("   Set it in .env file or export it:")
+    print()
+    print("   Make sure your .env file contains (WITHOUT quotes):")
+    print("   VITE_SUPABASE_URL=https://tfueafatqxspitjcbukq.supabase.co")
+    print()
+    print("   Or export it:")
     print("   export VITE_SUPABASE_URL='https://tfueafatqxspitjcbukq.supabase.co'")
     sys.exit(1)
 else:
