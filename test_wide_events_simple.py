@@ -7,6 +7,10 @@ This tests if the business context attributes actually show up in Supabase.
 import os
 import sys
 
+# Load .env file FIRST
+from dotenv import load_dotenv
+load_dotenv()
+
 print("=" * 70)
 print("🔍 Testing Wide Events Business Context")
 print("=" * 70)
