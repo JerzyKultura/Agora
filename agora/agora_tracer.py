@@ -34,6 +34,13 @@ except ImportError:
     SUPABASE_UPLOADER_AVAILABLE = False
     SupabaseUploader = None
 
+try:
+    from agora.wide_events import BusinessContextSpanProcessor
+    WIDE_EVENTS_AVAILABLE = True
+except ImportError:
+    WIDE_EVENTS_AVAILABLE = False
+    BusinessContextSpanProcessor = None
+
 _initialized = False
 tracer = None
 cloud_uploader = None
@@ -85,6 +92,11 @@ def init_agora(
 
     # Create processors
     processors = []
+
+    # ALWAYS add the business context processor (for plug-and-play wide events!)
+    if WIDE_EVENTS_AVAILABLE:
+        processors.append(BusinessContextSpanProcessor())
+        print("✅ Wide events (business context) processor enabled")
 
     if export_to_console:
         processors.append(SimpleSpanProcessor(ConsoleSpanExporter()))
