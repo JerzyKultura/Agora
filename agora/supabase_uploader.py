@@ -500,6 +500,8 @@ class SupabaseUploader:
         if not self.execution_id:
             await self._create_standalone_execution()
             if not self.execution_id:
+                print("❌ Failed to create execution - spans will not be uploaded!")
+                print("   💡 TIP: Set AGORA_PROJECT_ID env var to bypass org/project creation")
                 return  # Still no execution_id, bail out
 
         try:

@@ -26,10 +26,15 @@ import os
 # PASTE YOUR KEYS HERE (replace the placeholder values):
 os.environ["VITE_SUPABASE_URL"] = "YOUR_SUPABASE_URL_HERE"
 os.environ["VITE_SUPABASE_ANON_KEY"] = "YOUR_SUPABASE_ANON_KEY_HERE"
-os.environ["AGORA_API_KEY"] = "YOUR_AGORA_API_KEY_HERE"
+
+# ⚠️ REQUIRED for Colab to bypass RLS (Row-Level Security) issues:
+# Get this from your Agora dashboard or local DB
 os.environ["AGORA_PROJECT_ID"] = "YOUR_AGORA_PROJECT_ID_HERE"
+
+# Optional keys:
+os.environ["AGORA_API_KEY"] = "YOUR_AGORA_API_KEY_HERE"  # Optional
 os.environ["OPENAI_API_KEY"] = "YOUR_OPENAI_API_KEY_HERE"
-os.environ["TRACELOOP_API_KEY"] = "YOUR_TRACELOOP_API_KEY_HERE"
+os.environ["TRACELOOP_API_KEY"] = "YOUR_TRACELOOP_API_KEY_HERE"  # Optional
 
 print("✅ Environment variables set!")
 print()

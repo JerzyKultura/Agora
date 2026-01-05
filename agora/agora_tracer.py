@@ -171,8 +171,10 @@ def init_agora(
                             loop.create_task(cloud_uploader.add_spans(formatted))
                         except RuntimeError:
                             asyncio.run(cloud_uploader.add_spans(formatted))
-                    except Exception:
-                        pass  # Silently ignore upload errors
+                    except Exception as e:
+                        print(f"⚠️  Failed to upload {len(formatted)} span(s) to Supabase: {e}")
+                        # Still return success to avoid breaking the telemetry pipeline
+                        # but at least the user knows something went wrong
 
                 return SpanExportResult.SUCCESS
 
@@ -195,7 +197,7 @@ def init_agora(
             project_name=project_name or app_name,
             api_key=api_key
         )
-        cloud_uploader.batch_size = 1  # Immediate flushing
+        cloud_uploader.batch_size = 10  # Batch 10 spans before flushing for better performance
     elif enable_cloud_upload and not SUPABASE_UPLOADER_AVAILABLE:
         print("⚠️  Supabase upload not available (install supabase-py: pip install supabase)")
 
