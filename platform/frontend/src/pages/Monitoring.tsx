@@ -91,6 +91,7 @@ export default function Monitoring() {
 
   // Shared state
   const [executionNames, setExecutionNames] = useState<Map<string, string>>(new Map())
+  const [searchQuery, setSearchQuery] = useState<string>('')
 
   useEffect(() => {
     loadRecentSpans()
@@ -689,12 +690,34 @@ export default function Monitoring() {
           <>
             {!selectedTrace && (
               <div className="flex-1 overflow-y-auto bg-white">
-                {traces.length === 0 ? (
+                {/* Search Bar */}
+                <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-3 z-10">
+                  <input
+                    type="text"
+                    placeholder="Search traces by name, trace ID, or user ID..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                {traces.filter(trace => {
+                  if (!searchQuery) return true
+                  const query = searchQuery.toLowerCase()
+                  const name = (trace.workflow_name || trace.root_span.name || '').toLowerCase()
+                  const traceId = trace.trace_id.toLowerCase()
+                  const userId = trace.root_span.attributes?.['user.id']?.toString().toLowerCase() || ''
+                  return name.includes(query) || traceId.includes(query) || userId.includes(query)
+                }).length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full text-gray-400">
                     <Radio className="w-16 h-16 mb-4" />
-                    <p className="text-lg font-medium">Waiting for telemetry data...</p>
-                    <p className="text-sm mt-2">Run a workflow to see traces appear here</p>
-                    <p className="text-xs mt-4 text-gray-500">💾 All historical data is stored permanently</p>
+                    <p className="text-lg font-medium">
+                      {traces.length === 0 ? 'Waiting for telemetry data...' : 'No matching traces found'}
+                    </p>
+                    <p className="text-sm mt-2">
+                      {traces.length === 0 ? 'Run a workflow to see traces appear here' : `Try a different search term (${traces.length} total traces)`}
+                    </p>
+                    {traces.length === 0 && <p className="text-xs mt-4 text-gray-500">💾 All historical data is stored permanently</p>}
                   </div>
                 ) : (
                   <table className="w-full">
@@ -730,7 +753,14 @@ export default function Monitoring() {
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                      {traces.map((trace) => (
+                      {traces.filter(trace => {
+                        if (!searchQuery) return true
+                        const query = searchQuery.toLowerCase()
+                        const name = (trace.workflow_name || trace.root_span.name || '').toLowerCase()
+                        const traceId = trace.trace_id.toLowerCase()
+                        const userId = trace.root_span.attributes?.['user.id']?.toString().toLowerCase() || ''
+                        return name.includes(query) || traceId.includes(query) || userId.includes(query)
+                      }).map((trace) => (
                         <tr
                           key={trace.trace_id}
                           onClick={() => {
@@ -1069,6 +1099,13 @@ export default function Monitoring() {
                 <option value="success">Success</option>
                 <option value="error">Error</option>
               </select>
+              <input
+                type="text"
+                placeholder="Search executions by workflow name or execution ID..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
             </div>
 
             {loading && executions.length === 0 ? (
@@ -1097,7 +1134,14 @@ export default function Monitoring() {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {executions.map((execution) => {
+                    {executions.filter(execution => {
+                      if (!searchQuery) return true
+                      const query = searchQuery.toLowerCase()
+                      const workflow = workflows.get(execution.workflow_id)
+                      const workflowName = (workflow?.name || '').toLowerCase()
+                      const executionId = execution.id.toLowerCase()
+                      return workflowName.includes(query) || executionId.includes(query)
+                    }).map((execution) => {
                       const workflow = workflows.get(execution.workflow_id)
                       return (
                         <tr key={execution.id} className="hover:bg-gray-50">
