@@ -188,13 +188,12 @@ def init_agora(
                             except RuntimeError as e:
                                 # Colab/Jupyter edge case: loop exists but asyncio.run() still fails
                                 # Fall back to synchronous blocking call
-                                import asyncio
-                                loop = asyncio.new_event_loop()
-                                asyncio.set_event_loop(loop)
+                                new_loop = asyncio.new_event_loop()
+                                asyncio.set_event_loop(new_loop)
                                 try:
-                                    loop.run_until_complete(cloud_uploader.add_spans(formatted))
+                                    new_loop.run_until_complete(cloud_uploader.add_spans(formatted))
                                 finally:
-                                    loop.close()
+                                    new_loop.close()
                     except Exception as e:
                         print(f"⚠️  Failed to upload {len(formatted)} span(s) to Supabase: {e}")
                         # Still return success to avoid breaking the telemetry pipeline
@@ -216,6 +215,10 @@ def init_agora(
     tracer = trace.get_tracer("agora_tracer")
 
     if enable_cloud_upload and SUPABASE_UPLOADER_AVAILABLE:
+        # Read project_id from environment if not provided as parameter
+        if project_id is None:
+            project_id = os.environ.get("AGORA_PROJECT_ID")
+
         cloud_uploader = SupabaseUploader(
             project_name=project_name or app_name,
             api_key=api_key,
