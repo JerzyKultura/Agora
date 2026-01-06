@@ -60,13 +60,24 @@ def init_agora(
     sampling_rate: float = 1.0,
     capture_io: bool = False,
     supabase_url: Optional[str] = None,
-    supabase_key: Optional[str] = None
+    supabase_key: Optional[str] = None,
+    project_id: Optional[str] = None
 ):
     """
     Initialize Agora telemetry system. One-line setup!
-    
-    If VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are in your .env, 
-    they will be auto-detected.
+
+    Args:
+        app_name: Application name for telemetry
+        project_name: Project name (defaults to app_name)
+        project_id: Project UUID to bypass org/project creation (useful for Colab/external envs)
+        api_key: Agora API key (optional, reads from AGORA_API_KEY env var)
+        supabase_url: Supabase URL (optional, reads from VITE_SUPABASE_URL env var)
+        supabase_key: Supabase anon key (optional, reads from VITE_SUPABASE_ANON_KEY env var)
+        enable_cloud_upload: Enable uploading to Supabase (default True)
+
+    Environment variables auto-detected:
+        - VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
+        - AGORA_API_KEY, AGORA_PROJECT_ID
     """
     global _initialized, tracer, cloud_uploader, _sampling_rate, _capture_io_default
 
@@ -207,9 +218,16 @@ def init_agora(
     if enable_cloud_upload and SUPABASE_UPLOADER_AVAILABLE:
         cloud_uploader = SupabaseUploader(
             project_name=project_name or app_name,
-            api_key=api_key
+            api_key=api_key,
+            project_id=project_id,
+            supabase_url=supabase_url,
+            supabase_key=supabase_key
         )
         cloud_uploader.batch_size = 10  # Batch 10 spans before flushing for better performance
+
+        # Log if project_id is set (helpful for debugging)
+        if cloud_uploader.force_project_id:
+            print(f"📌 Using project ID: {cloud_uploader.force_project_id}")
     elif enable_cloud_upload and not SUPABASE_UPLOADER_AVAILABLE:
         print("⚠️  Supabase upload not available (install supabase-py: pip install supabase)")
 
