@@ -161,14 +161,14 @@ time.sleep(5)  # Give it time to batch and upload
 
 print("✅ Upload time elapsed!\n")
 
-# Mark execution as complete (FIX: Use asyncio.run, not bare await)
+# Mark execution as complete (Colab-compatible async handling)
 print("📝 Marking execution as complete...")
 from agora import agora_tracer
-import asyncio
 
 if agora_tracer.cloud_uploader:
     try:
-        asyncio.run(agora_tracer.cloud_uploader.complete_execution(
+        # In Colab, use await directly (event loop already running)
+        await agora_tracer.cloud_uploader.complete_execution(
             status="success",
             output_data={
                 "message": "Wide events Colab test successful!",
@@ -178,7 +178,7 @@ if agora_tracer.cloud_uploader:
                     response2.choices[0].message.content
                 ]
             }
-        ))
+        )
         print("✅ Execution marked as success!")
     except Exception as e:
         print(f"⚠️  Failed to complete execution: {e}")
