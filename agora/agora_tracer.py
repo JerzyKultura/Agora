@@ -168,13 +168,25 @@ def init_agora(
                     try:
                         try:
                             loop = asyncio.get_running_loop()
+                            # In environments with event loops (Jupyter/Colab), create task
                             loop.create_task(cloud_uploader.add_spans(formatted))
                         except RuntimeError:
-                            asyncio.run(cloud_uploader.add_spans(formatted))
+                            # No running loop - create one and run
+                            try:
+                                asyncio.run(cloud_uploader.add_spans(formatted))
+                            except RuntimeError as e:
+                                # Colab/Jupyter edge case: loop exists but asyncio.run() still fails
+                                # Fall back to synchronous blocking call
+                                import asyncio
+                                loop = asyncio.new_event_loop()
+                                asyncio.set_event_loop(loop)
+                                try:
+                                    loop.run_until_complete(cloud_uploader.add_spans(formatted))
+                                finally:
+                                    loop.close()
                     except Exception as e:
                         print(f"⚠️  Failed to upload {len(formatted)} span(s) to Supabase: {e}")
                         # Still return success to avoid breaking the telemetry pipeline
-                        # but at least the user knows something went wrong
 
                 return SpanExportResult.SUCCESS
 
