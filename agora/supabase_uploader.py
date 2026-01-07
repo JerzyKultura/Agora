@@ -6,6 +6,7 @@ This uploads telemetry data directly to Supabase from your Python scripts.
 
 import os
 import asyncio
+import atexit
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -53,12 +54,45 @@ class SupabaseUploader:
             if self.api_key:
                 masked_key = f"{self.api_key[:4]}...{self.api_key[-4:]}" if len(self.api_key) > 8 else "***"
                 print(f"🔑 Agora API Key verified: {masked_key}")
+
+            # Register cleanup to auto-complete execution on script exit
+            atexit.register(self._cleanup_on_exit)
         else:
             self.client = None
             if not SUPABASE_AVAILABLE:
                 print("⚠️  supabase-py not installed - run: pip install supabase")
             if not self.supabase_url or not self.supabase_key:
                 print("⚠️  VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY not set")
+
+    def _cleanup_on_exit(self):
+        """Auto-complete execution when script exits (called by atexit)"""
+        if not self.enabled or not self.execution_id:
+            return
+
+        try:
+            # Flush any remaining spans and mark execution as complete
+            loop = None
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                # No event loop running, create one
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+
+            async def cleanup():
+                await self.flush_spans()
+                # Only auto-complete if user didn't manually complete it
+                if self.execution_id:
+                    await self.complete_execution(status="success")
+
+            if loop.is_running():
+                # Loop is running (Jupyter/Colab), schedule task
+                loop.create_task(cleanup())
+            else:
+                # No loop or not running, run synchronously
+                loop.run_until_complete(cleanup())
+        except Exception:
+            pass  # Silent cleanup failure
 
     async def _with_retry(self, func, *args, max_retries=3, initial_delay=1, data_to_retry=None, **kwargs):
         """Execute a function with exponential backoff retry.
@@ -476,6 +510,9 @@ class SupabaseUploader:
             await self.flush_spans() # Flush any remaining spans
             print(f"✅ Completed execution: {self.execution_id} ({status})")
 
+            # Clear execution_id to prevent double-completion in cleanup
+            self.execution_id = None
+
         except Exception as e:
             print(f"⚠️  Failed to complete execution: {e}")
 
@@ -488,6 +525,7 @@ class SupabaseUploader:
             spans_to_upload = self.span_buffer.copy()
             self.span_buffer = []
             await self._execute_resilient("telemetry_spans", spans_to_upload, method="insert")
+            print(f"✅ Uploaded {len(spans_to_upload)} span(s) to Supabase")
         except Exception as e:
             print(f"⚠️  Failed to flush spans: {e}")
 
