@@ -81,7 +81,7 @@ export default function Monitoring() {
   const [traces, setTraces] = useState<Trace[]>([])
   const [selectedTrace, setSelectedTrace] = useState<Trace | null>(null)
   const [selectedSpan, setSelectedSpan] = useState<TelemetrySpan | null>(null)
-  const [activeTab, setActiveTab] = useState<'prompt' | 'completions' | 'llm_data' | 'details' | 'raw'>('prompt')
+  const [activeTab, setActiveTab] = useState<'messages' | 'prompt' | 'completions' | 'llm_data' | 'details' | 'raw'>('messages')
 
   // Executions view state
   const [executions, setExecutions] = useState<Execution[]>([])
@@ -383,6 +383,59 @@ export default function Monitoring() {
   const closeDetail = () => {
     setSelectedTrace(null)
     setSelectedSpan(null)
+  }
+
+  const renderMessagesTab = (span: TelemetrySpan) => {
+    const llmInfo = extractLLMInfo(span)
+
+    // Combine prompts and completions into conversation
+    const conversation = [
+      ...llmInfo.prompts.map(p => ({...p, type: 'prompt'})),
+      ...llmInfo.completions.map(c => ({...c, type: 'completion'}))
+    ]
+
+    if (conversation.length === 0) {
+      return (
+        <div className="text-gray-400 text-sm">No messages available. Set disable_content_logging=False to capture messages.</div>
+      )
+    }
+
+    return (
+      <div className="space-y-4">
+        <div className="text-sm font-semibold text-blue-400 mb-3">💬 Conversation</div>
+        {conversation.map((msg, idx) => {
+          const isUser = msg.role === 'user'
+          const isSystem = msg.role === 'system'
+          const isAssistant = msg.role === 'assistant'
+
+          return (
+            <div key={idx} className={`rounded-lg p-4 ${
+              isUser ? 'bg-blue-900/30 border border-blue-700/50' :
+              isAssistant ? 'bg-green-900/30 border border-green-700/50' :
+              'bg-gray-800/50 border border-gray-700/50'
+            }`}>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-xl">{
+                  isUser ? '👤' :
+                  isAssistant ? '🤖' :
+                  '⚙️'
+                }</span>
+                <div className={`text-xs font-semibold uppercase ${
+                  isUser ? 'text-blue-400' :
+                  isAssistant ? 'text-green-400' :
+                  'text-gray-400'
+                }`}>
+                  {msg.role}
+                </div>
+              </div>
+              <div className="text-sm text-gray-200 whitespace-pre-wrap pl-7">
+                {msg.content}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    )
   }
 
   const renderPromptTab = (span: TelemetrySpan) => {
@@ -975,7 +1028,7 @@ export default function Monitoring() {
                             onClick={() => {
                               setSelectedSpan(span)
                               if (isLLM) {
-                                setActiveTab('prompt')
+                                setActiveTab('messages')
                               } else {
                                 setActiveTab('details')
                               }
@@ -1017,6 +1070,16 @@ export default function Monitoring() {
                       <div className="bg-gray-800 border-b border-gray-700 flex gap-1 px-4">
                         {isLLMSpan(selectedSpan) ? (
                           <>
+                            <button
+                              onClick={() => setActiveTab('messages')}
+                              className={`px-4 py-3 text-sm font-medium transition-colors ${
+                                activeTab === 'messages'
+                                  ? 'text-white border-b-2 border-blue-500'
+                                  : 'text-gray-400 hover:text-gray-300'
+                              }`}
+                            >
+                              💬 Messages
+                            </button>
                             <button
                               onClick={() => setActiveTab('prompt')}
                               className={`px-4 py-3 text-sm font-medium transition-colors ${
@@ -1073,6 +1136,7 @@ export default function Monitoring() {
 
                       {/* Tab Content */}
                       <div className="flex-1 overflow-y-auto p-6">
+                        {activeTab === 'messages' && renderMessagesTab(selectedSpan)}
                         {activeTab === 'prompt' && renderPromptTab(selectedSpan)}
                         {activeTab === 'completions' && renderCompletionsTab(selectedSpan)}
                         {activeTab === 'llm_data' && renderLLMDataTab(selectedSpan)}
