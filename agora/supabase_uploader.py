@@ -7,9 +7,14 @@ This uploads telemetry data directly to Supabase from your Python scripts.
 import os
 import asyncio
 import atexit
+import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 from uuid import uuid4
+
+# Configure module logger
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 try:
     from supabase import create_client, Client
@@ -31,37 +36,49 @@ class SupabaseUploader:
         api_key: Optional[str] = None,
         project_id: Optional[str] = None
     ):
+        logger.info(f"[SupabaseUploader.__init__] Initializing SupabaseUploader for project: {project_name or 'default'}")
+
         self.project_name = project_name or "default"
         self.supabase_url = supabase_url or os.environ.get("VITE_SUPABASE_URL")
         self.supabase_key = supabase_key or os.environ.get("VITE_SUPABASE_ANON_KEY")
         self.api_key = api_key or os.environ.get("AGORA_API_KEY")
         self.force_project_id = project_id or os.environ.get("AGORA_PROJECT_ID")
 
+        logger.debug(f"[SupabaseUploader.__init__] Configuration: project_name={self.project_name}, has_supabase_url={bool(self.supabase_url)}, has_supabase_key={bool(self.supabase_key)}, has_api_key={bool(self.api_key)}, force_project_id={self.force_project_id}")
+
         self.execution_id: Optional[str] = None
         self.workflow_id: Optional[str] = None
         self.project_id: Optional[str] = None
         self.organization_id: Optional[str] = None
-        
+
         # Batching
         self.span_buffer: List[Dict[str, Any]] = []
         self.batch_size = 10
+        logger.debug(f"[SupabaseUploader.__init__] Batch configuration: batch_size={self.batch_size}")
 
         self.enabled = bool(self.supabase_url and self.supabase_key and SUPABASE_AVAILABLE)
+        logger.info(f"[SupabaseUploader.__init__] Uploader enabled: {self.enabled}")
 
         if self.enabled:
+            logger.debug(f"[SupabaseUploader.__init__] Creating Supabase client for URL: {self.supabase_url}")
             self.client: Client = create_client(self.supabase_url, self.supabase_key)
+            logger.info(f"[SupabaseUploader.__init__] Supabase client created successfully")
             print(f"✅ Supabase uploader enabled for project: {self.project_name}")
             if self.api_key:
                 masked_key = f"{self.api_key[:4]}...{self.api_key[-4:]}" if len(self.api_key) > 8 else "***"
+                logger.debug(f"[SupabaseUploader.__init__] API key present: {masked_key}")
                 print(f"🔑 Agora API Key verified: {masked_key}")
 
             # Register cleanup to auto-complete execution on script exit
+            logger.debug(f"[SupabaseUploader.__init__] Registering atexit cleanup handler")
             atexit.register(self._cleanup_on_exit)
         else:
             self.client = None
             if not SUPABASE_AVAILABLE:
+                logger.warning(f"[SupabaseUploader.__init__] Supabase library not available")
                 print("⚠️  supabase-py not installed - run: pip install supabase")
             if not self.supabase_url or not self.supabase_key:
+                logger.warning(f"[SupabaseUploader.__init__] Missing Supabase credentials: url={bool(self.supabase_url)}, key={bool(self.supabase_key)}")
                 print("⚠️  VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY not set")
 
     def _cleanup_on_exit(self):
@@ -98,49 +115,68 @@ class SupabaseUploader:
         """Execute a function with exponential backoff retry.
         If data_to_retry is provided, it will attempt to strip missing columns on PGRST204.
         """
+        func_name = func.__name__ if hasattr(func, '__name__') else str(func)
+        logger.debug(f"[SupabaseUploader._with_retry] Starting retry loop for {func_name}: max_retries={max_retries}, initial_delay={initial_delay}s")
+
         delay = initial_delay
         current_data = data_to_retry
-        
+
         for attempt in range(max_retries):
             try:
+                logger.debug(f"[SupabaseUploader._with_retry] {func_name}: Attempt {attempt + 1}/{max_retries}")
                 if asyncio.iscoroutinefunction(func):
-                    return await func(*args, **kwargs)
-                return func(*args, **kwargs)
+                    result = await func(*args, **kwargs)
+                else:
+                    result = func(*args, **kwargs)
+                logger.info(f"[SupabaseUploader._with_retry] {func_name}: Success on attempt {attempt + 1}")
+                return result
             except Exception as e:
                 error_str = str(e)
+                logger.warning(f"[SupabaseUploader._with_retry] {func_name}: Attempt {attempt + 1}/{max_retries} failed: {type(e).__name__}: {error_str}")
+
                 # Check for "Missing Column" error (PGRST204)
                 if "PGRST204" in error_str and current_data is not None:
                     import re
                     match = re.search(r"Could not find the '(.+?)' column", error_str)
                     if match:
                         missing_col = match.group(1)
+                        logger.error(f"[SupabaseUploader._with_retry] Schema mismatch detected: Missing column '{missing_col}', attempting to strip and retry")
                         print(f"⚠️  Schema Mismatch: Column '{missing_col}' not found. Stripping and retrying...")
-                        
+
                         # Strip the missing column from data
                         if isinstance(current_data, list):
                             for item in current_data:
                                 if missing_col in item:
                                     del item[missing_col]
+                            logger.debug(f"[SupabaseUploader._with_retry] Stripped '{missing_col}' from {len(current_data)} items in list")
                         elif isinstance(current_data, dict):
                             if missing_col in current_data:
                                 del current_data[missing_col]
-                        
+                            logger.debug(f"[SupabaseUploader._with_retry] Stripped '{missing_col}' from dict")
+
                         # We need to recreate the request builder if we stripped columns
                         # This is tricky because func is already bound.
                         # For now, we rely on the caller to use this smartly or we handle it in specific methods.
-                
+
                 if attempt < max_retries - 1:
                     # Don't print full error for PGRST204 if we're trying to fix it
                     if "PGRST204" not in error_str:
+                        logger.warning(f"[SupabaseUploader._with_retry] {func_name}: Retrying in {delay}s after failure")
                         print(f"⚠️  Upload attempt {attempt+1} failed ({e}), retrying in {delay}s...")
+                    else:
+                        logger.debug(f"[SupabaseUploader._with_retry] {func_name}: Retrying in {delay}s after schema mismatch")
                     await asyncio.sleep(delay)
                     delay *= 2
+                    logger.debug(f"[SupabaseUploader._with_retry] {func_name}: Next retry delay will be {delay}s")
                 else:
                     if "PGRST204" in error_str:
+                        logger.error(f"[SupabaseUploader._with_retry] {func_name}: All retries exhausted - database schema out of sync")
                         print(f"❌  Upload failed: Your database schema is out of sync. Please run the migrations in all_migrations.sql.")
                     else:
+                        logger.error(f"[SupabaseUploader._with_retry] {func_name}: All retries exhausted: {e}")
                         print(f"❌  Upload failed after {max_retries} attempts: {e}")
-        
+
+        logger.error(f"[SupabaseUploader._with_retry] {func_name}: Returning None after all retries failed")
         return None
 
     async def _execute_resilient(self, table_name, data, method="insert", query_params=None):

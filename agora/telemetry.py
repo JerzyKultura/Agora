@@ -3,9 +3,14 @@ import time
 import uuid
 import os
 import warnings
+import logging
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Union
 from contextlib import contextmanager
+
+# Configure module logger
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 # Import base classes from the core
 from agora import (
@@ -30,25 +35,35 @@ except ImportError:
 
 class AuditLogger:
     """Records node execution events and flow transitions with JSON export capability"""
-    
+
     def __init__(self, session_id: Optional[str] = None, save_dir: str = "./logs"):
         self.session_id = session_id or str(uuid.uuid4())
         self.events: List[Dict[str, Any]] = []
         self.start_time = datetime.utcnow()
         self.save_dir = save_dir
         self.tracer = None
-        
+
+        logger.info(f"[AuditLogger.__init__] Creating AuditLogger: session_id={self.session_id}, save_dir={save_dir}")
+
         # Storage for completed spans (for JSON export)
         self.completed_spans: List[Dict[str, Any]] = []
         self.span_hierarchy: Dict[int, Optional[int]] = {}  # child_id -> parent_id
         self._span_id_map: Dict[int, str] = {}  # internal_id -> otel_span_id
-        
+
         # Ensure save directory exists
-        os.makedirs(save_dir, exist_ok=True)
-        
+        try:
+            os.makedirs(save_dir, exist_ok=True)
+            logger.debug(f"[AuditLogger.__init__] Save directory created/verified: {save_dir}")
+        except Exception as e:
+            logger.error(f"[AuditLogger.__init__] Failed to create save directory {save_dir}: {e}")
+            raise
+
         # Initialize OpenTelemetry tracer if available
         if OTEL_AVAILABLE:
             self.tracer = trace.get_tracer(__name__)
+            logger.info(f"[AuditLogger.__init__] OpenTelemetry tracer initialized successfully")
+        else:
+            logger.warning(f"[AuditLogger.__init__] OpenTelemetry not available - span tracking will be disabled")
     
     def log_event(self, event_type: str, **kwargs):
         """Log a single event with timestamp"""
@@ -59,19 +74,22 @@ class AuditLogger:
             **kwargs
         }
         self.events.append(event)
+        logger.debug(f"[AuditLogger.log_event] Event logged: type={event_type}, total_events={len(self.events)}, data={kwargs}")
     
     def log_node_start(self, node_name: str, node_type: str, params: Dict[str, Any] = None):
         """Log node execution start"""
+        logger.info(f"[AuditLogger.log_node_start] Node starting: name={node_name}, type={node_type}")
         self.log_event(
             "node_start",
             node_name=node_name,
             node_type=node_type,
             params=params or {}
         )
-    
-    def log_node_success(self, node_name: str, node_type: str, result: Any = None, 
+
+    def log_node_success(self, node_name: str, node_type: str, result: Any = None,
                         latency_ms: float = 0, phase_latencies: Dict[str, float] = None):
         """Log successful node execution"""
+        logger.info(f"[AuditLogger.log_node_success] Node succeeded: name={node_name}, latency={latency_ms:.2f}ms, phases={phase_latencies}")
         self.log_event(
             "node_success",
             node_name=node_name,
@@ -80,10 +98,11 @@ class AuditLogger:
             latency_ms=latency_ms,
             phase_latencies=phase_latencies or {}
         )
-    
+
     def log_node_error(self, node_name: str, node_type: str, error: Exception,
                       retry_count: int = 0, latency_ms: float = 0):
         """Log node execution error"""
+        logger.error(f"[AuditLogger.log_node_error] Node failed: name={node_name}, error={type(error).__name__}: {error}, retry_count={retry_count}, latency={latency_ms:.2f}ms")
         self.log_event(
             "node_error",
             node_name=node_name,
@@ -93,9 +112,10 @@ class AuditLogger:
             retry_count=retry_count,
             latency_ms=latency_ms
         )
-    
+
     def log_flow_transition(self, from_node: str, to_node: str, action: str = "default"):
         """Log flow edge transition"""
+        logger.info(f"[AuditLogger.log_flow_transition] Flow transition: {from_node} --[{action}]--> {to_node}")
         self.log_event(
             "flow_transition",
             from_node=from_node,
@@ -105,15 +125,17 @@ class AuditLogger:
     
     def log_flow_start(self, flow_name: str, flow_type: str):
         """Log flow execution start"""
+        logger.info(f"[AuditLogger.log_flow_start] Flow starting: name={flow_name}, type={flow_type}")
         self.log_event(
             "flow_start",
             flow_name=flow_name,
             flow_type=flow_type
         )
-    
-    def log_flow_end(self, flow_name: str, flow_type: str, result: Any = None, 
+
+    def log_flow_end(self, flow_name: str, flow_type: str, result: Any = None,
                     total_latency_ms: float = 0):
         """Log flow execution end"""
+        logger.info(f"[AuditLogger.log_flow_end] Flow completed: name={flow_name}, latency={total_latency_ms:.2f}ms, result_type={type(result).__name__}")
         self.log_event(
             "flow_end",
             flow_name=flow_name,
@@ -124,6 +146,7 @@ class AuditLogger:
     
     def to_json(self, indent: int = 2) -> str:
         """Export all events as JSON string"""
+        logger.debug(f"[AuditLogger.to_json] Exporting {len(self.events)} events to JSON")
         summary = {
             "session_id": self.session_id,
             "start_time": self.start_time.isoformat(),
@@ -133,12 +156,18 @@ class AuditLogger:
             "events": self.events
         }
         return json.dumps(summary, indent=indent)
-    
+
     def save_json(self, filename: str):
         """Save audit log to JSON file"""
         filepath = os.path.join(self.save_dir, filename) if not os.path.isabs(filename) else filename
-        with open(filepath, 'w') as f:
-            f.write(self.to_json())
+        logger.info(f"[AuditLogger.save_json] Saving audit log to file: {filepath} ({len(self.events)} events)")
+        try:
+            with open(filepath, 'w') as f:
+                f.write(self.to_json())
+            logger.info(f"[AuditLogger.save_json] Successfully saved audit log to {filepath}")
+        except Exception as e:
+            logger.error(f"[AuditLogger.save_json] Failed to save audit log to {filepath}: {e}")
+            raise
     
     def get_summary(self) -> Dict[str, Any]:
         """Get audit session summary"""
@@ -164,71 +193,83 @@ class AuditLogger:
     def create_span(self, name: str, parent=None, **attrs):
         """
         Create a span with optional parent for hierarchical tracing.
-        
+
         Args:
             name: Span name (e.g., "flow.chat_flow", "node.send_prompt")
             parent: Parent span object (None for root spans)
             **attrs: Additional attributes to set on the span
-        
+
         Returns:
             Span object or None if OTel unavailable
         """
         if not self.tracer:
+            logger.debug(f"[AuditLogger.create_span] Tracer not available, returning None for span: {name}")
             return None
-        
+
         # Create span with parent context if provided
         if parent is not None:
+            logger.debug(f"[AuditLogger.create_span] Creating child span: name={name}, parent_id={id(parent)}")
             # Create a context from the parent span
             ctx = trace.set_span_in_context(parent)
             span = self.tracer.start_span(name, context=ctx)
-            
+
             # Track hierarchy
             span_id = id(span)
             parent_id = id(parent)
             self.span_hierarchy[span_id] = parent_id
+            logger.debug(f"[AuditLogger.create_span] Span hierarchy recorded: child_id={span_id}, parent_id={parent_id}")
         else:
+            logger.info(f"[AuditLogger.create_span] Creating root span: name={name}")
             # Root span (no parent)
             span = self.tracer.start_span(name)
             self.span_hierarchy[id(span)] = None
-        
+
         # Set custom attributes
         for key, value in attrs.items():
             span.set_attribute(key, str(value) if value is not None else "None")
-        
+        logger.debug(f"[AuditLogger.create_span] Set {len(attrs)} attributes on span: {name}")
+
         # Store start time for duration calculation
         if not hasattr(span, '_agora_start_time'):
             span._agora_start_time = time.time()
-        
+
+        logger.info(f"[AuditLogger.create_span] Span created successfully: name={name}, span_id={id(span)}, has_parent={parent is not None}")
         return span
     
     def end_span(self, span, error: Exception = None):
         """
         End a span and record it for JSON export.
-        
+
         Args:
             span: The span to end (can be None)
             error: Optional exception to mark span as failed
         """
         if span is None:
+            logger.debug(f"[AuditLogger.end_span] Span is None, skipping end_span")
             return
-        
+
+        span_name = span.name if hasattr(span, 'name') else "unknown"
+        logger.debug(f"[AuditLogger.end_span] Ending span: name={span_name}, span_id={id(span)}, has_error={error is not None}")
+
         # Set error status if provided
         if error:
+            logger.warning(f"[AuditLogger.end_span] Marking span {span_name} as failed: {type(error).__name__}: {error}")
             span.set_status(Status(StatusCode.ERROR, str(error)))
             span.set_attribute("error.type", type(error).__name__)
             span.set_attribute("error.message", str(error))
-        
+
         # Calculate duration
         duration_ms = (time.time() - getattr(span, '_agora_start_time', time.time())) * 1000
-        
+        logger.debug(f"[AuditLogger.end_span] Span {span_name} duration: {duration_ms:.2f}ms")
+
         # Extract span information for JSON export
         span_context = span.get_span_context()
         span_id = id(span)
         parent_id = self.span_hierarchy.get(span_id)
-        
+
         # Store the actual OpenTelemetry span ID for this span
         current_otel_span_id = format(span_context.span_id, '016x') if span_context else None
-        
+
         # Store completed span info
         span_info = {
             "name": span.name if hasattr(span, 'name') else "unknown",
@@ -243,39 +284,49 @@ class AuditLogger:
             ).isoformat(),
             "_internal_id": span_id  # For parent lookup
         }
-        
+
         # Extract attributes from span
         if hasattr(span, 'attributes') and span.attributes:
             span_info["attributes"] = dict(span.attributes)
-        
+            logger.debug(f"[AuditLogger.end_span] Extracted {len(span_info['attributes'])} attributes from span {span_name}")
+
         # Store mapping from internal ID to OpenTelemetry span ID
         if not hasattr(self, '_span_id_map'):
             self._span_id_map = {}
         self._span_id_map[span_id] = current_otel_span_id
-        
+
         # Set parent_span_id if this span has a parent
         if parent_id and parent_id in self._span_id_map:
             span_info["parent_span_id"] = self._span_id_map[parent_id]
-        
+            logger.debug(f"[AuditLogger.end_span] Span {span_name} has parent, parent_span_id={span_info['parent_span_id']}")
+        else:
+            logger.debug(f"[AuditLogger.end_span] Span {span_name} is a root span (no parent)")
+
         self.completed_spans.append(span_info)
-        
+        logger.debug(f"[AuditLogger.end_span] Span {span_name} recorded, total completed spans: {len(self.completed_spans)}")
+
         # End the span
         span.end()
+        logger.info(f"[AuditLogger.end_span] Span ended successfully: name={span_name}, duration={duration_ms:.2f}ms, status={span_info['status']}")
     
     def save_trace_json(self, filename: str = "trace.json"):
         """
         Save hierarchical trace data to JSON file.
-        
+
         Args:
             filename: Output filename (relative to save_dir or absolute path)
         """
         filepath = os.path.join(self.save_dir, filename) if not os.path.isabs(filename) else filename
-        
+        logger.info(f"[AuditLogger.save_trace_json] Saving trace to file: {filepath} ({len(self.completed_spans)} spans)")
+
         # Get trace_id from first span if available
         trace_id = None
         if self.completed_spans:
             trace_id = self.completed_spans[0].get("trace_id")
-        
+            logger.debug(f"[AuditLogger.save_trace_json] Trace ID: {trace_id}")
+        else:
+            logger.warning(f"[AuditLogger.save_trace_json] No completed spans to save")
+
         trace_data = {
             "trace_id": trace_id,
             "session_id": self.session_id,
@@ -285,11 +336,15 @@ class AuditLogger:
             "total_spans": len(self.completed_spans),
             "spans": self.completed_spans
         }
-        
-        with open(filepath, 'w') as f:
-            f.write(json.dumps(trace_data, indent=2))
-        
-        print(f"✅ Trace saved to {filepath}")
+
+        try:
+            with open(filepath, 'w') as f:
+                f.write(json.dumps(trace_data, indent=2))
+            logger.info(f"[AuditLogger.save_trace_json] Successfully saved trace to {filepath}")
+            print(f"✅ Trace saved to {filepath}")
+        except Exception as e:
+            logger.error(f"[AuditLogger.save_trace_json] Failed to save trace to {filepath}: {e}")
+            raise
 
 
 # ======================================================================
