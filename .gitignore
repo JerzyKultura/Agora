@@ -1,5 +1,8 @@
 node_modules/
 .env
+.env.local
+*_with_your_credentials*
+*credentials.py
 
 # Python
 __pycache__/
