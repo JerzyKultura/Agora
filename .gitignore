@@ -3,6 +3,7 @@ node_modules/
 .env.local
 *_with_your_credentials*
 *credentials.py
+colab_ready_to_run.py
 
 # Python
 __pycache__/
