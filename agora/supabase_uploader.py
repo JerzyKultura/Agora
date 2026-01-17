@@ -28,13 +28,15 @@ class SupabaseUploader:
         supabase_url: Optional[str] = None,
         supabase_key: Optional[str] = None,
         api_key: Optional[str] = None,
-        project_id: Optional[str] = None
+        project_id: Optional[str] = None,
+        org_id: Optional[str] = None
     ):
         self.project_name = project_name or "default"
         self.supabase_url = supabase_url or os.environ.get("VITE_SUPABASE_URL")
         self.supabase_key = supabase_key or os.environ.get("VITE_SUPABASE_ANON_KEY")
         self.api_key = api_key or os.environ.get("AGORA_API_KEY")
         self.force_project_id = project_id or os.environ.get("AGORA_PROJECT_ID")
+        self.force_org_id = org_id or os.environ.get("AGORA_ORG_ID")
 
         self.execution_id: Optional[str] = None
         self.workflow_id: Optional[str] = None
@@ -159,6 +161,10 @@ class SupabaseUploader:
         """Get the first available organization"""
         if not self.enabled:
             return None
+        
+        # If org ID is forced via environment variable, use it
+        if self.force_org_id:
+            return self.force_org_id
 
         try:
             # Get first org (in production, you'd auth and get user's org)

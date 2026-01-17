@@ -428,3 +428,7 @@ __all__ = [
     'AsyncNode', 'AsyncFlow', 'AsyncBatchNode', 'AsyncParallelBatchNode',
     'AsyncBatchFlow', 'AsyncParallelBatchFlow'
 ]
+
+# Import init_agora from agora_tracer
+from agora.agora_tracer import init_agora
+__all__.append('init_agora')

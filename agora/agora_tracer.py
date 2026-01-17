@@ -200,7 +200,7 @@ def init_agora(
         print("⚠️  Supabase upload not available (install supabase-py: pip install supabase)")
 
     _initialized = True
-    print(f"✅ Traceloop initialized: {app_name}")
+    print(f"✅ agora initialized: {app_name}")
 
 
 # ==============================================================

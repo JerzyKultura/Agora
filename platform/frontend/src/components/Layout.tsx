@@ -1,6 +1,6 @@
 import { Outlet, Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { LayoutDashboard, FolderKanban, Activity, BarChart3, Settings, LogOut, Menu, X, Radio } from 'lucide-react'
+import { LayoutDashboard, FolderKanban, Activity, BarChart3, Settings, LogOut, Menu, X } from 'lucide-react'
 import { useState } from 'react'
 
 export default function Layout() {
@@ -65,14 +65,6 @@ export default function Layout() {
           >
             <Activity size={18} />
             <span className="text-sm font-medium">Monitoring</span>
-          </Link>
-          <Link
-            to="/live"
-            onClick={() => setIsMobileMenuOpen(false)}
-            className="flex items-center gap-3 px-6 py-3 hover:bg-gray-800 transition text-gray-300 hover:text-white"
-          >
-            <Radio size={18} className="text-purple-400" />
-            <span className="text-sm font-medium">Live Telemetry</span>
           </Link>
           <Link
             to="/analytics"
