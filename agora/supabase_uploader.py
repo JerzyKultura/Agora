@@ -509,6 +509,12 @@ class SupabaseUploader:
                 return  # Still no execution_id, bail out
 
         try:
+            # Get organization ID for multi-tenant filtering
+            if not self.organization_id:
+                self.organization_id = await self._get_or_create_org()
+            
+            org_id = self.organization_id
+            
             for span in spans:
                 self.span_buffer.append({
                     "execution_id": self.execution_id,
@@ -524,7 +530,8 @@ class SupabaseUploader:
                     "attributes": span.get("attributes", {}),
                     "events": span.get("events", []),
                     "tokens_used": span.get("tokens_used"),
-                    "estimated_cost": span.get("estimated_cost")
+                    "estimated_cost": span.get("estimated_cost"),
+                    "organization_id": org_id  # Required by database schema
                 })
 
             if len(self.span_buffer) >= self.batch_size:

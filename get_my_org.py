@@ -15,7 +15,7 @@ supabase_key = os.environ.get("VITE_SUPABASE_ANON_KEY")
 client = create_client(supabase_url, supabase_key)
 
 # Get your organization
-user_org = client.table("organizations").select("*").eq("name", "halfasandwich3@gmail.com's Organization").execute()
+user_org = client.table("organizations").select("*").eq("name", "anirudhanil2013@gmail.com's Organization").execute()
 
 if user_org.data:
     org_id = user_org.data[0]['id']
