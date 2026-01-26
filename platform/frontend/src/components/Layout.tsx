@@ -1,6 +1,6 @@
 import { Outlet, Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { LayoutDashboard, FolderKanban, Activity, BarChart3, Settings, LogOut, Menu, X, Building2 } from 'lucide-react'
+import { LayoutDashboard, FolderKanban, Activity, BarChart3, Settings as SettingsIcon, LogOut, Menu, X, Building2, Search } from 'lucide-react'
 import { useState } from 'react'
 
 export default function Layout() {
@@ -75,6 +75,22 @@ export default function Layout() {
             <span className="text-sm font-medium">Analytics</span>
           </Link>
           <Link
+            to="/telemetry-explorer"
+            onClick={() => setIsMobileMenuOpen(false)}
+            className="flex items-center gap-3 px-6 py-3 hover:bg-gray-800 transition text-gray-300 hover:text-white"
+          >
+            <Search size={18} />
+            <span className="text-sm font-medium">Telemetry Explorer</span>
+          </Link>
+          <Link
+            to="/telemetry-logs"
+            onClick={() => setIsMobileMenuOpen(false)}
+            className="flex items-center gap-3 px-6 py-3 hover:bg-gray-800 transition text-gray-300 hover:text-white"
+          >
+            <Activity size={18} />
+            <span className="text-sm font-medium">Telemetry Logs</span>
+          </Link>
+          <Link
             to="/cost"
             onClick={() => setIsMobileMenuOpen(false)}
             className="flex items-center gap-3 px-6 py-3 hover:bg-gray-800 transition text-gray-300 hover:text-white"
@@ -95,7 +111,7 @@ export default function Layout() {
             onClick={() => setIsMobileMenuOpen(false)}
             className="flex items-center gap-3 px-6 py-3 hover:bg-gray-800 transition text-gray-300 hover:text-white"
           >
-            <Settings size={18} />
+            <SettingsIcon size={18} />
             <span className="text-sm font-medium">Settings</span>
           </Link>
 

@@ -22,6 +22,7 @@ This makes debugging and analytics WAY more powerful.
 from typing import Dict, Any, Optional
 from opentelemetry import trace
 from opentelemetry.trace import Span
+from datetime import datetime
 
 
 class BusinessContext:
@@ -252,3 +253,209 @@ def enrich_with_feature_flags(flags: Dict[str, bool]):
     """
     context = BusinessContext(feature_flags=flags)
     enrich_current_span(context)
+
+
+# ==============================================================
+# WIDE EVENT EMISSION TO SUPABASE
+# ==============================================================
+
+from opentelemetry.sdk.trace import SpanProcessor, ReadableSpan
+from collections import defaultdict
+import os
+import json
+
+class BusinessContextSpanProcessor(SpanProcessor):
+    """
+    Span processor that collects all spans for an execution and emits
+    ONE wide event to Supabase when the execution completes.
+    
+    This implements the "wide events" pattern: one comprehensive event
+    per execution with all business context.
+    """
+    
+    def __init__(self):
+        self.executions = defaultdict(list)  # execution_id -> list of spans
+        self.supabase_client = None
+        
+        # Try to initialize Supabase client
+        try:
+            from supabase import create_client
+            url = os.getenv("VITE_SUPABASE_URL", "").strip('"')
+            key = os.getenv("VITE_SUPABASE_ANON_KEY", "").strip('"')
+            
+            if url and key:
+                self.supabase_client = create_client(url, key)
+                print("✅ Wide events: Supabase client initialized")
+        except Exception as e:
+            print(f"⚠️  Wide events: Supabase client not available: {e}")
+    
+    def on_start(self, span: ReadableSpan, parent_context=None):
+        """Called when a span starts - we don't need to do anything here"""
+        pass
+    
+    def on_end(self, span: ReadableSpan):
+        """Called when a span ends - collect it for wide event emission"""
+        if not span:
+            return
+        
+        # Extract execution_id from span attributes
+        execution_id = None
+        for key, value in (span.attributes or {}).items():
+            if key == "execution_id":
+                execution_id = value
+                break
+        
+        if not execution_id:
+            return  # Not part of an Agora execution
+        
+        # Add span to execution collection
+        self.executions[execution_id].append(span)
+        
+        # Check if this is the root span (workflow completion)
+        # Root spans have kind = INTERNAL and name ending in ".flow"
+        is_root = (
+            span.name.endswith(".flow") or 
+            span.name.endswith("Flow") or
+            "workflow" in span.name.lower()
+        )
+        
+        if is_root:
+            # Execution complete - emit wide event
+            self._emit_wide_event(execution_id)
+    
+    def _emit_wide_event(self, execution_id: str):
+        """Emit one wide event for the entire execution"""
+        if not self.supabase_client:
+            return
+        
+        spans = self.executions.get(execution_id, [])
+        if not spans:
+            return
+        
+        try:
+            # Aggregate data from all spans
+            root_span = spans[0]  # First span is usually the root
+            
+            # Extract node path (ordered list of nodes executed)
+            node_path = [s.name for s in sorted(spans, key=lambda s: s.start_time)]
+            
+            # Calculate total duration
+            start_times = [s.start_time for s in spans]
+            end_times = [s.end_time for s in spans if s.end_time]
+            
+            if start_times and end_times:
+                duration_ns = max(end_times) - min(start_times)
+                duration_ms = int(duration_ns / 1_000_000)
+            else:
+                duration_ms = 0
+            
+            # Aggregate performance metrics
+            total_tokens = sum(
+                s.attributes.get("llm.usage.total_tokens", 0) 
+                for s in spans if s.attributes
+            )
+            
+            total_cost = sum(
+                float(s.attributes.get("gen_ai.usage.cost", 0) or 0)
+                for s in spans if s.attributes
+            )
+            
+            llm_calls = sum(
+                1 for s in spans 
+                if s.attributes and "llm" in s.name.lower()
+            )
+            
+            # Extract business context from root span
+            attrs = root_span.attributes or {}
+            
+            # Determine status
+            status = "success"
+            error_type = None
+            error_message = None
+            
+            for span in spans:
+                if span.status and hasattr(span.status, 'status_code'):
+                    if str(span.status.status_code) == "StatusCode.ERROR":
+                        status = "error"
+                        # Try to get error details
+                        if span.events:
+                            for event in span.events:
+                                if event.name == "exception":
+                                    error_type = event.attributes.get("exception.type")
+                                    error_message = event.attributes.get("exception.message")
+                        break
+            
+            # Build wide event
+            wide_event = {
+                "execution_id": execution_id,
+                "trace_id": str(root_span.context.trace_id) if root_span.context else None,
+                "timestamp": datetime.fromtimestamp(root_span.start_time / 1_000_000_000).isoformat(),
+                
+                # Workflow context
+                "workflow_name": root_span.name,
+                "workflow_version": attrs.get("app.version"),
+                "node_path": node_path,
+                
+                # User/Org context
+                "user_id": attrs.get("user.id"),
+                "organization_id": os.getenv("AGORA_ORG_ID"),
+                "subscription_tier": attrs.get("user.subscription_tier"),
+                "account_age_days": attrs.get("user.account_age_days"),
+                
+                # Performance
+                "duration_ms": duration_ms,
+                "tokens_used": int(total_tokens) if total_tokens else None,
+                "estimated_cost": float(total_cost) if total_cost else None,
+                "llm_calls_count": llm_calls if llm_calls > 0 else None,
+                
+                # Outcome
+                "status": status,
+                "error_type": error_type,
+                "error_message": error_message,
+                
+                # Context
+                "feature_flags": self._extract_feature_flags(attrs),
+                "deployment_id": os.getenv("DEPLOYMENT_ID"),
+                "region": os.getenv("REGION", "local"),
+                "service_version": os.getenv("SERVICE_VERSION"),
+                
+                # Full event as JSONB
+                "event": {
+                    "execution_id": execution_id,
+                    "node_path": node_path,
+                    "duration_ms": duration_ms,
+                    "tokens_used": total_tokens,
+                    "cost": total_cost,
+                    "llm_calls": llm_calls,
+                    "status": status,
+                    "attributes": dict(attrs) if attrs else {}
+                }
+            }
+            
+            # Insert into Supabase
+            self.supabase_client.table('telemetry_wide_events').insert(wide_event).execute()
+            
+            print(f"✅ Wide event emitted: {execution_id} ({status}, {duration_ms}ms)")
+            
+        except Exception as e:
+            print(f"❌ Failed to emit wide event: {e}")
+        finally:
+            # Clean up collected spans
+            del self.executions[execution_id]
+    
+    def _extract_feature_flags(self, attrs: dict) -> dict:
+        """Extract feature flags from span attributes"""
+        flags = {}
+        for key, value in (attrs or {}).items():
+            if key.startswith("feature_flags."):
+                flag_name = key.replace("feature_flags.", "")
+                flags[flag_name] = value
+        return flags if flags else None
+    
+    def shutdown(self):
+        """Called when processor is shutting down"""
+        pass
+    
+    def force_flush(self, timeout_millis: int = 30000):
+        """Force flush any pending events"""
+        return True

@@ -1,5 +1,5 @@
 from agora.agora_tracer import TracedAsyncFlow, agora_node, init_agora
-from agora.wide_events import set_business_context
+from agora.wide_events import enrich_with_user
 from openai import OpenAI
 import os
 import asyncio

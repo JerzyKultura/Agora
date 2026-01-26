@@ -14,6 +14,8 @@ import Analytics from './pages/Analytics'
 import Settings from './pages/Settings'
 import CostDashboard from './pages/CostDashboard'
 import Organizations from './pages/Organizations'
+import TelemetryExplorer from './pages/TelemetryExplorer'
+import TelemetryLogs from './pages/TelemetryLogs'
 
 function App() {
   const [user, setUser] = useState<User | null>(null)
@@ -53,6 +55,8 @@ function App() {
           <Route path="monitoring/:projectId" element={<Monitoring />} />
           <Route path="analytics" element={<Analytics />} />
           <Route path="analytics/:projectId" element={<Analytics />} />
+          <Route path="telemetry-explorer" element={<TelemetryExplorer />} />
+          <Route path="telemetry-logs" element={<TelemetryLogs />} />
           <Route path="cost" element={<CostDashboard />} />
           <Route path="organizations" element={<Organizations />} />
           <Route path="executions/:executionId" element={<ExecutionDetail />} />

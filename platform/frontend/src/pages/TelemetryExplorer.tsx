@@ -1,292 +1,188 @@
-import { useEffect, useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { Search, Filter, Database, Brain, Activity } from 'lucide-react'
+import { Search, Filter, TrendingUp } from 'lucide-react'
 
-interface Span {
-    id: string
-    execution_id: string
-    name: string
-    start_time: string
-    end_time: string | null
-    duration_ms: number | null
-    status: string
-    attributes: any
-    events: any[]
+interface PathPattern {
+    path: string[]
+    count: number
+    percentage: number
 }
 
 export default function TelemetryExplorer() {
-    const [spans, setSpans] = useState<Span[]>([])
-    const [loading, setLoading] = useState(true)
-    const [selectedSpan, setSelectedSpan] = useState<Span | null>(null)
-
-    // Filters
-    const [limit, setLimit] = useState(100)
-    const [nameFilter, setNameFilter] = useState('')
-    const [attrFilter, setAttrFilter] = useState('')
-
-    // Live Mode
-    const [liveMode, setLiveMode] = useState(false)
-    const [refreshTrigger, setRefreshTrigger] = useState(0)
+    const [workflowFilter, setWorkflowFilter] = useState('')
+    const [executions, setExecutions] = useState<any[]>([])
+    const [pathPatterns, setPathPatterns] = useState<PathPattern[]>([])
+    const [loading, setLoading] = useState(false)
 
     useEffect(() => {
-        fetchSpans()
-    }, [limit, refreshTrigger])
+        loadExecutions()
+    }, [workflowFilter])
 
-    // Auto-Refresh for Live Mode
-    useEffect(() => {
-        if (!liveMode) return
-        const interval = setInterval(() => {
-            // Use a trigger instead of calling fetchSpans directly to avoid race conditions/closures
-            setRefreshTrigger(prev => prev + 1)
-        }, 3000)
-        return () => clearInterval(interval)
-    }, [liveMode])
-
-    const fetchSpans = async () => {
+    const loadExecutions = async () => {
         setLoading(true)
         try {
             let query = supabase
                 .from('telemetry_spans')
                 .select('*')
+                .not('execution_id', 'is', null)
                 .order('start_time', { ascending: false })
-                .limit(limit)
+                .limit(500)
 
-            if (nameFilter) {
-                query = query.ilike('name', `%${nameFilter}%`)
+            if (workflowFilter) {
+                query = query.ilike('name', `%${workflowFilter}%`)
             }
 
             const { data, error } = await query
 
             if (error) throw error
 
-            // Client-side attribute filtering (supa JSONB filtering is tricky with raw text)
-            let filteredData = data || []
-            if (attrFilter) {
-                const lowerFilter = attrFilter.toLowerCase()
-                filteredData = filteredData.filter(s =>
-                    JSON.stringify(s.attributes).toLowerCase().includes(lowerFilter)
-                )
-            }
+            // Group by execution_id
+            const execMap = new Map<string, any[]>()
+            data?.forEach(span => {
+                const execId = span.execution_id
+                if (!execMap.has(execId)) {
+                    execMap.set(execId, [])
+                }
+                execMap.get(execId)!.push(span)
+            })
 
-            setSpans(filteredData)
+            // Extract paths
+            const paths: string[][] = []
+            execMap.forEach(spans => {
+                const sorted = spans.sort((a, b) =>
+                    new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
+                )
+                paths.push(sorted.map(s => s.name))
+            })
+
+            // Count path patterns
+            const pathCounts = new Map<string, number>()
+            paths.forEach(path => {
+                const key = path.join(' → ')
+                pathCounts.set(key, (pathCounts.get(key) || 0) + 1)
+            })
+
+            // Convert to array and calculate percentages
+            const patterns: PathPattern[] = Array.from(pathCounts.entries())
+                .map(([pathStr, count]) => ({
+                    path: pathStr.split(' → '),
+                    count,
+                    percentage: (count / paths.length) * 100
+                }))
+                .sort((a, b) => b.count - a.count)
+
+            setExecutions(Array.from(execMap.values()))
+            setPathPatterns(patterns)
         } catch (error) {
-            console.error('Error fetching spans:', error)
+            console.error('Failed to load executions:', error)
         } finally {
             setLoading(false)
         }
     }
 
-    // Debounce helper for filters
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            fetchSpans()
-        }, 500)
-        return () => clearTimeout(timer)
-    }, [nameFilter, attrFilter])
-
-    const getDurationColor = (ms: number | null) => {
-        if (!ms) return 'text-gray-400'
-        if (ms < 500) return 'text-green-600'
-        if (ms < 2000) return 'text-yellow-600'
-        return 'text-red-600'
-    }
-
-
-
     return (
-        <div className="h-[calc(100vh-100px)] flex flex-col">
-            {/* Header & Controls */}
-            <div className="mb-6">
-                <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-                    <Activity className="text-blue-500" />
-                    Telemetry Explorer
-                </h1>
-                <p className="text-gray-500 text-sm mt-1">Deep dive into individual operations, vector chunks, and raw spans.</p>
+        <div className="p-8">
+            <div className="max-w-7xl mx-auto">
+                {/* Header */}
+                <div className="mb-6">
+                    <h1 className="text-3xl font-bold text-gray-900 mb-2">Telemetry Explorer</h1>
+                    <p className="text-gray-600">Query and analyze workflow execution patterns</p>
+                </div>
 
-                <div className="mt-4 bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex flex-wrap gap-4 items-center">
-                    <div className="flex-1 min-w-[200px] relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-                        <input
-                            type="text"
-                            placeholder="Filter by Span Name (e.g. VectorSearch)..."
-                            className="w-full pl-9 pr-4 py-2 border rounded-md text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                            value={nameFilter}
-                            onChange={(e) => setNameFilter(e.target.value)}
-                        />
-                    </div>
-                    <div className="flex-1 min-w-[200px] relative">
-                        <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-                        <input
-                            type="text"
-                            placeholder="Search in Attributes (JSON)..."
-                            className="w-full pl-9 pr-4 py-2 border rounded-md text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                            value={attrFilter}
-                            onChange={(e) => setAttrFilter(e.target.value)}
-                        />
-                    </div>
-                    <div className="flex items-center gap-3 border-l pl-4 ml-2">
+                {/* Search & Filters */}
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
+                    <div className="flex gap-4">
+                        <div className="flex-1">
+                            <div className="relative">
+                                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                                <input
+                                    type="text"
+                                    placeholder="Search by workflow name..."
+                                    value={workflowFilter}
+                                    onChange={(e) => setWorkflowFilter(e.target.value)}
+                                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                />
+                            </div>
+                        </div>
                         <button
-                            onClick={() => setLiveMode(!liveMode)}
-                            className={`px-3 py-2 rounded-md text-sm font-medium flex items-center gap-2 transition-colors ${liveMode
-                                    ? 'bg-green-100 text-green-700 border border-green-200'
-                                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                                }`}
+                            onClick={loadExecutions}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
                         >
-                            <div className={`w-2 h-2 rounded-full ${liveMode ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
-                            {liveMode ? 'Live Mode ON' : 'Live Mode OFF'}
+                            <Filter className="w-4 h-4" />
+                            Apply
                         </button>
-
-                        <select
-                            className="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2 outline-none"
-                            value={limit}
-                            onChange={(e) => setLimit(Number(e.target.value))}
-                        >
-                            <option value={50}>Last 50</option>
-                            <option value={100}>Last 100</option>
-                            <option value={500}>Last 500</option>
-                        </select>
-                    </div>
-                </div>
-            </div>
-
-            {/* Main Content Area */}
-            <div className="flex-1 flex gap-6 overflow-hidden">
-
-                {/* Table View */}
-                <div className={`flex-1 bg-white rounded-lg shadow overflow-hidden flex flex-col ${selectedSpan ? 'w-2/3' : 'w-full'}`}>
-                    <div className="overflow-auto flex-1">
-                        <table className="min-w-full divide-y divide-gray-200">
-                            <thead className="bg-gray-50 sticky top-0 z-10">
-                                <tr>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Operation</th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Duration</th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Provider / Info</th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                                </tr>
-                            </thead>
-                            <tbody className="bg-white divide-y divide-gray-200 text-sm">
-                                {loading && (
-                                    <tr><td colSpan={5} className="p-8 text-center text-gray-500">Loading spans...</td></tr>
-                                )}
-                                {!loading && spans.length === 0 && (
-                                    <tr><td colSpan={5} className="p-8 text-center text-gray-500">No spans found matching criteria.</td></tr>
-                                )}
-                                {spans.map(span => (
-                                    <tr
-                                        key={span.id}
-                                        onClick={() => setSelectedSpan(span)}
-                                        className={`cursor-pointer transition-colors ${selectedSpan?.id === span.id ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
-                                    >
-                                        <td className="px-4 py-3 whitespace-nowrap text-gray-500 text-xs">
-                                            {new Date(span.start_time).toLocaleTimeString()}
-                                        </td>
-                                        <td className="px-4 py-3 font-medium text-gray-900">
-                                            {span.name}
-                                        </td>
-                                        <td className={`px-4 py-3 whitespace-nowrap font-mono ${getDurationColor(span.duration_ms)}`}>
-                                            {span.duration_ms ? `${span.duration_ms}ms` : '-'}
-                                        </td>
-                                        <td className="px-4 py-3 text-gray-600 max-w-xs truncate">
-                                            {/* Smart Column: Show relevant info based on span type */}
-                                            {span.attributes['llm.provider'] && (
-                                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 mr-2">
-                                                    {span.attributes['llm.provider']}
-                                                </span>
-                                            )}
-                                            {span.attributes['vector_db.provider'] && (
-                                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800 mr-2">
-                                                    <Database size={10} className="mr-1" /> {span.attributes['vector_db.provider']}
-                                                </span>
-                                            )}
-                                            {span.attributes['llm.model']}
-                                        </td>
-                                        <td className="px-4 py-3 whitespace-nowrap">
-                                            <span className={`px-2 py-0.5 inline-flex text-xs leading-5 font-semibold rounded-full ${span.status === 'ERROR' ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
-                                                }`}>
-                                                {span.status}
-                                            </span>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                    <div className="bg-gray-50 px-4 py-2 border-t border-gray-200 text-xs text-gray-500 flex justify-between">
-                        <span>Showing {spans.length} spans</span>
-                        <span>Live Query from Supabase</span>
                     </div>
                 </div>
 
-                {/* Inspector Panel */}
-                {selectedSpan && (
-                    <div className="w-1/3 min-w-[400px] bg-white rounded-lg shadow border border-gray-200 flex flex-col overflow-hidden animate-in slide-in-from-right-10 duration-200">
-                        <div className="p-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
-                            <h3 className="font-semibold text-gray-800">Span Details</h3>
-                            <button
-                                onClick={() => setSelectedSpan(null)}
-                                className="text-gray-400 hover:text-gray-600"
-                            >
-                                ✕
-                            </button>
+                {/* Stats */}
+                <div className="grid grid-cols-3 gap-4 mb-6">
+                    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+                        <div className="text-sm text-gray-600 mb-1">Total Executions</div>
+                        <div className="text-2xl font-bold text-gray-900">{executions.length}</div>
+                    </div>
+                    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+                        <div className="text-sm text-gray-600 mb-1">Unique Paths</div>
+                        <div className="text-2xl font-bold text-gray-900">{pathPatterns.length}</div>
+                    </div>
+                    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+                        <div className="text-sm text-gray-600 mb-1">Most Common</div>
+                        <div className="text-sm font-medium text-gray-900">
+                            {pathPatterns[0] ? `${pathPatterns[0].percentage.toFixed(1)}%` : '-'}
                         </div>
+                    </div>
+                </div>
 
-                        <div className="p-4 overflow-auto flex-1 space-y-6">
+                {/* Path Patterns */}
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+                    <div className="px-6 py-4 border-b border-gray-200">
+                        <div className="flex items-center gap-2">
+                            <TrendingUp className="w-5 h-5 text-blue-600" />
+                            <h2 className="text-lg font-semibold text-gray-900">Path Patterns</h2>
+                        </div>
+                    </div>
 
-                            {/* High Level Stats */}
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="bg-gray-50 p-3 rounded border border-gray-100">
-                                    <div className="text-xs text-gray-500 uppercase">Duration</div>
-                                    <div className={`text-xl font-bold ${getDurationColor(selectedSpan.duration_ms)}`}>
-                                        {selectedSpan.duration_ms}ms
-                                    </div>
-                                </div>
-                                <div className="bg-gray-50 p-3 rounded border border-gray-100">
-                                    <div className="text-xs text-gray-500 uppercase">Tokens</div>
-                                    <div className="text-xl font-bold text-gray-800">
-                                        {selectedSpan.attributes['llm.usage.total_tokens'] || selectedSpan.attributes['tokens.total'] || '-'}
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Vector / Retrieval Specifics (The "Killer Feature") */}
-                            {(selectedSpan.attributes['vector_db.retrieved_chunks'] || selectedSpan.attributes['memory.retrieved_chunks']) && (
-                                <div className="border border-blue-200 bg-blue-50 rounded-lg p-3">
-                                    <h4 className="text-sm font-bold text-blue-800 mb-2 flex items-center gap-2">
-                                        <Brain size={14} /> Retrieved Content
-                                    </h4>
-                                    <div className="bg-white border border-blue-100 rounded p-2 text-xs font-mono text-gray-700 max-h-60 overflow-auto whitespace-pre-wrap">
-                                        {selectedSpan.attributes['vector_db.retrieved_chunks'] || selectedSpan.attributes['memory.retrieved_chunks']}
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* All Attributes Raw JSON */}
-                            <div>
-                                <h4 className="text-xs font-bold text-gray-500 uppercase mb-2">Full Attributes</h4>
-                                <pre className="bg-gray-900 text-gray-100 p-3 rounded-lg text-xs overflow-auto font-mono">
-                                    {JSON.stringify(selectedSpan.attributes, null, 2)}
-                                </pre>
-                            </div>
-
-                            {/* Events */}
-                            {selectedSpan.events && selectedSpan.events.length > 0 && (
-                                <div>
-                                    <h4 className="text-xs font-bold text-gray-500 uppercase mb-2">Events</h4>
-                                    <div className="space-y-2">
-                                        {selectedSpan.events.map((e, i) => (
-                                            <div key={i} className="text-xs border-l-2 border-blue-300 pl-2">
-                                                <span className="font-semibold">{e.name}</span> <span className="text-gray-500">{new Date(e.timestamp).toLocaleTimeString()}</span>
+                    {loading ? (
+                        <div className="p-8 text-center text-gray-500">Loading...</div>
+                    ) : pathPatterns.length === 0 ? (
+                        <div className="p-8 text-center text-gray-500">No patterns found</div>
+                    ) : (
+                        <div className="divide-y divide-gray-200">
+                            {pathPatterns.slice(0, 20).map((pattern, idx) => (
+                                <div key={idx} className="px-6 py-4 hover:bg-gray-50">
+                                    <div className="flex items-start justify-between mb-2">
+                                        <div className="flex items-center gap-3">
+                                            <span className="text-sm font-semibold text-gray-500">#{idx + 1}</span>
+                                            <div>
+                                                <div className="text-sm font-medium text-gray-900 mb-1">
+                                                    {pattern.count}x executions ({pattern.percentage.toFixed(1)}%)
+                                                </div>
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    {pattern.path.map((node, nodeIdx) => (
+                                                        <div key={nodeIdx} className="flex items-center gap-2">
+                                                            <span className="px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs font-mono">
+                                                                {node}
+                                                            </span>
+                                                            {nodeIdx < pattern.path.length - 1 && (
+                                                                <span className="text-gray-400">→</span>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                </div>
                                             </div>
-                                        ))}
+                                        </div>
+                                    </div>
+                                    {/* Progress bar */}
+                                    <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
+                                        <div
+                                            className="bg-blue-600 h-2 rounded-full transition-all"
+                                            style={{ width: `${pattern.percentage}%` }}
+                                        />
                                     </div>
                                 </div>
-                            )}
-
+                            ))}
                         </div>
-                    </div>
-                )}
-
+                    )}
+                </div>
             </div>
         </div>
     )

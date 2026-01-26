@@ -1,8 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { api } from '../lib/api'
 import { ChevronRight, Clock, Zap, DollarSign, Radio, X, Activity, List } from 'lucide-react'
+import { calculateStats, detectAnomalies, type ExecutionStats } from '../utils/anomalyDetection'
+import { extractNodePath, detectPathAnomaly, type PathAlarm } from '../utils/pathAnalysis'
+import MetricCard from '../components/MetricCard'
+import AnomalyBadge from '../components/AnomalyBadge'
+import PathAnomalyBadge from '../components/PathAnomalyBadge'
 
 interface TelemetrySpan {
   id: string
@@ -106,6 +111,67 @@ export default function Monitoring() {
 
   // Shared state
   const [executionNames, setExecutionNames] = useState<Map<string, string>>(new Map())
+
+  // Anomaly detection state
+  const stats = useMemo(() => {
+    if (viewMode === 'traces') {
+      return calculateStats(traces.map(t => ({
+        start_time: t.start_time,
+        end_time: t.end_time,
+        duration_ms: t.duration_ms,
+        tokens_used: t.total_tokens,
+        estimated_cost: t.total_cost,
+        status: t.has_errors ? 'error' : 'success'
+      })))
+    } else {
+      return calculateStats(executions)
+    }
+  }, [traces, executions, viewMode])
+
+  const anomalyCount = useMemo(() => {
+    if (viewMode === 'traces') {
+      return traces.reduce((count, trace) => {
+        const anomalies = detectAnomalies({
+          start_time: trace.start_time,
+          end_time: trace.end_time,
+          duration_ms: trace.duration_ms,
+          tokens_used: trace.total_tokens,
+          estimated_cost: trace.total_cost,
+          status: trace.has_errors ? 'error' : 'success'
+        }, stats)
+        return count + anomalies.length
+      }, 0)
+    } else {
+      return executions.reduce((count, exec) => {
+        const anomalies = detectAnomalies(exec, stats)
+        return count + anomalies.length
+      }, 0)
+    }
+  }, [traces, executions, stats, viewMode])
+
+  // Path-based alarms (example configuration)
+  const pathAlarms: PathAlarm[] = useMemo(() => [
+    {
+      id: '1',
+      workflow: 'ChatTurn',
+      expectedPaths: [
+        ['ChatTurn.flow', 'ProcessMessage.node', 'ProcessMessage.prep', 'ProcessMessage.exec', 'openai.chat', 'ProcessMessage.post']
+      ],
+      severity: 'error',
+      enabled: true,
+      description: 'Standard chat turn flow'
+    },
+    {
+      id: '2',
+      workflow: 'DataPipeline',
+      expectedPaths: [
+        ['prep', 'process', 'enrich', 'validate', 'save']
+      ],
+      severity: 'warning',
+      enabled: true,
+      description: 'Data processing pipeline'
+    }
+  ], [])
 
   useEffect(() => {
     // Check authentication first
@@ -663,8 +729,8 @@ export default function Monitoring() {
           <button
             onClick={() => setViewMode('traces')}
             className={`px-4 py-2 font-medium text-sm transition-colors flex items-center gap-2 ${viewMode === 'traces'
-                ? 'text-blue-600 border-b-2 border-blue-600'
-                : 'text-gray-500 hover:text-gray-700'
+              ? 'text-blue-600 border-b-2 border-blue-600'
+              : 'text-gray-500 hover:text-gray-700'
               }`}
           >
             <Activity className="w-4 h-4" />
@@ -674,8 +740,8 @@ export default function Monitoring() {
           <button
             onClick={() => setViewMode('executions')}
             className={`px-4 py-2 font-medium text-sm transition-colors flex items-center gap-2 ${viewMode === 'executions'
-                ? 'text-blue-600 border-b-2 border-blue-600'
-                : 'text-gray-500 hover:text-gray-700'
+              ? 'text-blue-600 border-b-2 border-blue-600'
+              : 'text-gray-500 hover:text-gray-700'
               }`}
           >
             <List className="w-4 h-4" />
@@ -684,7 +750,36 @@ export default function Monitoring() {
           </button>
         </div>
 
-        {/* Aggregated Metrics Bar (only for executions view) */}
+        {/* Real-Time Metrics Dashboard */}
+        <div className="mt-4 grid grid-cols-4 gap-4">
+          <MetricCard
+            title="Total Items"
+            value={viewMode === 'traces' ? traces.length : executions.length}
+            icon="📊"
+          />
+          <MetricCard
+            title="Avg Duration"
+            value={stats.avgDuration > 0 ? `${stats.avgDuration.toFixed(2)}s` : '-'}
+            icon="⚡"
+          />
+          <MetricCard
+            title="Error Rate"
+            value={stats.totalExecutions > 0 ? `${(stats.errorRate * 100).toFixed(1)}%` : '0%'}
+            severity={stats.errorRate > 0.1 ? 'error' : stats.errorRate > 0.05 ? 'warning' : 'normal'}
+            icon="📈"
+          />
+          <MetricCard
+            title="Anomalies"
+            value={anomalyCount}
+            severity={anomalyCount > 0 ? 'warning' : 'normal'}
+            icon="⚠️"
+          />
+        </div>
+      </div>
+
+      {/* Existing metrics section */}
+      <div className="bg-white border-b border-gray-200 px-6">
+
         {viewMode === 'executions' && executions.length > 0 && (
           <div className="mt-4 grid grid-cols-5 gap-4">
             <div className="bg-blue-50 rounded-lg p-3">
@@ -783,6 +878,42 @@ export default function Monitoring() {
                                 </span>
                               </div>
                             )}
+                            {/* Anomaly Badges */}
+                            {(() => {
+                              const anomalies = detectAnomalies({
+                                start_time: trace.start_time,
+                                end_time: trace.end_time,
+                                duration_ms: trace.duration_ms,
+                                tokens_used: trace.total_tokens,
+                                estimated_cost: trace.total_cost,
+                                status: trace.has_errors ? 'error' : 'success'
+                              }, stats)
+                              return anomalies.length > 0 && (
+                                <div className="mt-1 flex flex-wrap gap-1">
+                                  {anomalies.map((anomaly, idx) => (
+                                    <AnomalyBadge key={idx} anomaly={anomaly} />
+                                  ))}
+                                </div>
+                              )
+                            })()}
+                            {/* Path Anomaly Detection */}
+                            {(() => {
+                              const path = extractNodePath(trace.spans)
+                              const alarm = pathAlarms.find(a =>
+                                trace.workflow_name?.includes(a.workflow) ||
+                                trace.root_span.name.includes(a.workflow)
+                              )
+
+                              if (!alarm) return null
+
+                              const pathAnomaly = detectPathAnomaly(path, alarm)
+                              return pathAnomaly && (
+                                <div className="mt-1">
+                                  <PathAnomalyBadge anomaly={pathAnomaly} />
+                                </div>
+                              )
+                            })()}
+
                           </td>
                           <td className="px-6 py-4">
                             {trace.models_used.length > 0 ? (
@@ -1017,8 +1148,8 @@ export default function Monitoring() {
                             <button
                               onClick={() => setActiveTab('prompt')}
                               className={`px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'prompt'
-                                  ? 'text-white border-b-2 border-blue-500'
-                                  : 'text-gray-400 hover:text-gray-300'
+                                ? 'text-white border-b-2 border-blue-500'
+                                : 'text-gray-400 hover:text-gray-300'
                                 }`}
                             >
                               Prompt
@@ -1026,8 +1157,8 @@ export default function Monitoring() {
                             <button
                               onClick={() => setActiveTab('completions')}
                               className={`px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'completions'
-                                  ? 'text-white border-b-2 border-blue-500'
-                                  : 'text-gray-400 hover:text-gray-300'
+                                ? 'text-white border-b-2 border-blue-500'
+                                : 'text-gray-400 hover:text-gray-300'
                                 }`}
                             >
                               Completions
@@ -1035,8 +1166,8 @@ export default function Monitoring() {
                             <button
                               onClick={() => setActiveTab('llm_data')}
                               className={`px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'llm_data'
-                                  ? 'text-white border-b-2 border-blue-500'
-                                  : 'text-gray-400 hover:text-gray-300'
+                                ? 'text-white border-b-2 border-blue-500'
+                                : 'text-gray-400 hover:text-gray-300'
                                 }`}
                             >
                               LLM Data
@@ -1046,8 +1177,8 @@ export default function Monitoring() {
                         <button
                           onClick={() => setActiveTab('details')}
                           className={`px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'details'
-                              ? 'text-white border-b-2 border-blue-500'
-                              : 'text-gray-400 hover:text-gray-300'
+                            ? 'text-white border-b-2 border-blue-500'
+                            : 'text-gray-400 hover:text-gray-300'
                             }`}
                         >
                           Details
@@ -1055,8 +1186,8 @@ export default function Monitoring() {
                         <button
                           onClick={() => setActiveTab('raw')}
                           className={`px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'raw'
-                              ? 'text-white border-b-2 border-blue-500'
-                              : 'text-gray-400 hover:text-gray-300'
+                            ? 'text-white border-b-2 border-blue-500'
+                            : 'text-gray-400 hover:text-gray-300'
                             }`}
                         >
                           Raw
