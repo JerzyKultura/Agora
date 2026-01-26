@@ -604,3 +604,4 @@ def create_supabase_uploader(
         supabase_url=supabase_url,
         supabase_key=supabase_key
     )
+    

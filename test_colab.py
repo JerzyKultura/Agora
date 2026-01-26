@@ -27,15 +27,11 @@ You'll see:
 # ============================================================================
 
 # Get your OpenAI key from: https://platform.openai.com/api-keys
-import os
-from dotenv import load_dotenv
-load_dotenv()
-
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or ""
+OPENAI_API_KEY = ""  # ← PASTE YOUR KEY: sk-proj-...
 
 # Get these from your Agora .env file or Supabase dashboard
-SUPABASE_URL = os.getenv("VITE_SUPABASE_URL") or "https://tfueafatqxspitjcbukq.supabase.co"
-SUPABASE_ANON_KEY = os.getenv("VITE_SUPABASE_ANON_KEY") or ""
+SUPABASE_URL = "https://tfueafatqxspitjcbukq.supabase.co"
+SUPABASE_ANON_KEY = ""  # ← PASTE YOUR KEY: eyJhbGci...
 
 # ============================================================================
 # Validation
@@ -58,7 +54,7 @@ print("✅ API keys validated!\n")
 # ============================================================================
 
 print("📦 Installing dependencies...")
-# !pip install -q traceloop-sdk openai supabase python-dotenv
+!pip install -q traceloop-sdk openai supabase python-dotenv
 
 print("✅ Dependencies installed!\n")
 
@@ -83,13 +79,13 @@ import os
 
 if not os.path.exists('/content/Agora'):
     print("📥 Cloning Agora SDK...")
-    # !git clone https://github.com/JerzyKultura/Agora.git /content/Agora
+    !git clone https://github.com/JerzyKultura/Agora.git /content/Agora
     print("✅ Agora cloned!\n")
 else:
     print("✅ Agora already exists!\n")
 
 # Add to Python path
-# sys.path.insert(0, '/content/Agora')
+sys.path.insert(0, '/content/Agora')
 
 # ============================================================================
 # Initialize Telemetry
