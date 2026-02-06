@@ -91,6 +91,14 @@ export default function Layout() {
             <span className="text-sm font-medium">Telemetry Logs</span>
           </Link>
           <Link
+            to="/telemetry-chat"
+            onClick={() => setIsMobileMenuOpen(false)}
+            className="flex items-center gap-3 px-6 py-3 hover:bg-gray-800 transition text-gray-300 hover:text-white"
+          >
+            <Search size={18} />
+            <span className="text-sm font-medium">Ask Telemetry</span>
+          </Link>
+          <Link
             to="/cost"
             onClick={() => setIsMobileMenuOpen(false)}
             className="flex items-center gap-3 px-6 py-3 hover:bg-gray-800 transition text-gray-300 hover:text-white"

@@ -1,13 +1,8 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { api } from '../lib/api'
 import { ChevronRight, Clock, Zap, DollarSign, Radio, X, Activity, List } from 'lucide-react'
-import { calculateStats, detectAnomalies, type ExecutionStats } from '../utils/anomalyDetection'
-import { extractNodePath, detectPathAnomaly, type PathAlarm } from '../utils/pathAnalysis'
-import MetricCard from '../components/MetricCard'
-import AnomalyBadge from '../components/AnomalyBadge'
-import PathAnomalyBadge from '../components/PathAnomalyBadge'
 
 interface TelemetrySpan {
   id: string
@@ -77,21 +72,6 @@ interface Workflow {
 
 type ViewMode = 'traces' | 'executions'
 
-// Helper function to get current user's organization
-async function getCurrentUserOrganization(): Promise<string> {
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
-
-  const { data: userOrg } = await supabase
-    .from('user_organizations')
-    .select('organization_id')
-    .eq('user_id', user.id)
-    .single()
-
-  if (!userOrg) throw new Error('No organization found')
-  return userOrg.organization_id
-}
-
 export default function Monitoring() {
   const navigate = useNavigate()
   const [viewMode, setViewMode] = useState<ViewMode>('traces')
@@ -112,82 +92,9 @@ export default function Monitoring() {
   // Shared state
   const [executionNames, setExecutionNames] = useState<Map<string, string>>(new Map())
 
-  // Anomaly detection state
-  const stats = useMemo(() => {
-    if (viewMode === 'traces') {
-      return calculateStats(traces.map(t => ({
-        start_time: t.start_time,
-        end_time: t.end_time,
-        duration_ms: t.duration_ms,
-        tokens_used: t.total_tokens,
-        estimated_cost: t.total_cost,
-        status: t.has_errors ? 'error' : 'success'
-      })))
-    } else {
-      return calculateStats(executions)
-    }
-  }, [traces, executions, viewMode])
-
-  const anomalyCount = useMemo(() => {
-    if (viewMode === 'traces') {
-      return traces.reduce((count, trace) => {
-        const anomalies = detectAnomalies({
-          start_time: trace.start_time,
-          end_time: trace.end_time,
-          duration_ms: trace.duration_ms,
-          tokens_used: trace.total_tokens,
-          estimated_cost: trace.total_cost,
-          status: trace.has_errors ? 'error' : 'success'
-        }, stats)
-        return count + anomalies.length
-      }, 0)
-    } else {
-      return executions.reduce((count, exec) => {
-        const anomalies = detectAnomalies(exec, stats)
-        return count + anomalies.length
-      }, 0)
-    }
-  }, [traces, executions, stats, viewMode])
-
-  // Path-based alarms (example configuration)
-  const pathAlarms: PathAlarm[] = useMemo(() => [
-    {
-      id: '1',
-      workflow: 'ChatTurn',
-      expectedPaths: [
-        ['ChatTurn.flow', 'ProcessMessage.node', 'ProcessMessage.prep', 'ProcessMessage.exec', 'openai.chat', 'ProcessMessage.post']
-      ],
-      severity: 'error',
-      enabled: true,
-      description: 'Standard chat turn flow'
-    },
-    {
-      id: '2',
-      workflow: 'DataPipeline',
-      expectedPaths: [
-        ['prep', 'process', 'enrich', 'validate', 'save']
-      ],
-      severity: 'warning',
-      enabled: true,
-      description: 'Data processing pipeline'
-    }
-  ], [])
-
   useEffect(() => {
-    // Check authentication first
-    const checkAuthAndLoadData = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) {
-        navigate('/login')
-        return
-      }
-
-      // Load data only if authenticated
-      loadRecentSpans()
-      loadExecutions()
-    }
-
-    checkAuthAndLoadData()
+    loadRecentSpans()
+    loadExecutions()
 
     const channel = supabase
       .channel('monitoring_telemetry_spans')
@@ -319,13 +226,9 @@ export default function Monitoring() {
 
   const loadRecentSpans = async () => {
     try {
-      // Get current user's organization for filtering
-      const orgId = await getCurrentUserOrganization()
-
       const { data, error } = await supabase
         .from('telemetry_spans')
         .select('*')
-        .eq('organization_id', orgId)  // Filter by organization
         .order('created_at', { ascending: false })
         .limit(500)
 
@@ -433,7 +336,7 @@ export default function Monitoring() {
     const attrs = span.attributes || {}
 
     // Extract all prompts (handle multiple messages)
-    const prompts: Array<{ role: string, content: string }> = []
+    const prompts: Array<{role: string, content: string}> = []
     let i = 0
     while (attrs[`gen_ai.prompt.${i}.content`] || attrs[`gen_ai.prompt.${i}.role`]) {
       prompts.push({
@@ -444,7 +347,7 @@ export default function Monitoring() {
     }
 
     // Extract completions
-    const completions: Array<{ role: string, content: string }> = []
+    const completions: Array<{role: string, content: string}> = []
     i = 0
     while (attrs[`gen_ai.completion.${i}.content`] || attrs[`gen_ai.completion.${i}.role`]) {
       completions.push({
@@ -462,7 +365,7 @@ export default function Monitoring() {
       promptTokens: attrs['gen_ai.usage.input_tokens'] || attrs['llm.usage.prompt_tokens'] || 0,
       completionTokens: attrs['gen_ai.usage.output_tokens'] || attrs['llm.usage.completion_tokens'] || 0,
       totalTokens: attrs['llm.usage.total_tokens'] ||
-        (attrs['gen_ai.usage.input_tokens'] || 0) + (attrs['gen_ai.usage.output_tokens'] || 0),
+                   (attrs['gen_ai.usage.input_tokens'] || 0) + (attrs['gen_ai.usage.output_tokens'] || 0),
       prompts,
       completions,
       finishReason: attrs['gen_ai.response.finish_reasons'] || attrs['llm.finish_reason'],
@@ -589,11 +492,11 @@ export default function Monitoring() {
     Object.entries(attrs).forEach(([key, value]) => {
       // Business context attributes (from wide_events)
       if (key.startsWith('user.') ||
-        key.startsWith('session.') ||
-        key.startsWith('feature_flags.') ||
-        key.startsWith('app.') ||
-        key.startsWith('business.') ||
-        key.startsWith('custom.')) {
+          key.startsWith('session.') ||
+          key.startsWith('feature_flags.') ||
+          key.startsWith('app.') ||
+          key.startsWith('business.') ||
+          key.startsWith('custom.')) {
         businessContext[key] = value
       } else {
         technicalDetails[key] = value
@@ -728,10 +631,11 @@ export default function Monitoring() {
         <div className="flex gap-2 border-b border-gray-200">
           <button
             onClick={() => setViewMode('traces')}
-            className={`px-4 py-2 font-medium text-sm transition-colors flex items-center gap-2 ${viewMode === 'traces'
-              ? 'text-blue-600 border-b-2 border-blue-600'
-              : 'text-gray-500 hover:text-gray-700'
-              }`}
+            className={`px-4 py-2 font-medium text-sm transition-colors flex items-center gap-2 ${
+              viewMode === 'traces'
+                ? 'text-blue-600 border-b-2 border-blue-600'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
           >
             <Activity className="w-4 h-4" />
             Traces
@@ -739,10 +643,11 @@ export default function Monitoring() {
           </button>
           <button
             onClick={() => setViewMode('executions')}
-            className={`px-4 py-2 font-medium text-sm transition-colors flex items-center gap-2 ${viewMode === 'executions'
-              ? 'text-blue-600 border-b-2 border-blue-600'
-              : 'text-gray-500 hover:text-gray-700'
-              }`}
+            className={`px-4 py-2 font-medium text-sm transition-colors flex items-center gap-2 ${
+              viewMode === 'executions'
+                ? 'text-blue-600 border-b-2 border-blue-600'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
           >
             <List className="w-4 h-4" />
             Executions
@@ -750,36 +655,7 @@ export default function Monitoring() {
           </button>
         </div>
 
-        {/* Real-Time Metrics Dashboard */}
-        <div className="mt-4 grid grid-cols-4 gap-4">
-          <MetricCard
-            title="Total Items"
-            value={viewMode === 'traces' ? traces.length : executions.length}
-            icon="📊"
-          />
-          <MetricCard
-            title="Avg Duration"
-            value={stats.avgDuration > 0 ? `${stats.avgDuration.toFixed(2)}s` : '-'}
-            icon="⚡"
-          />
-          <MetricCard
-            title="Error Rate"
-            value={stats.totalExecutions > 0 ? `${(stats.errorRate * 100).toFixed(1)}%` : '0%'}
-            severity={stats.errorRate > 0.1 ? 'error' : stats.errorRate > 0.05 ? 'warning' : 'normal'}
-            icon="📈"
-          />
-          <MetricCard
-            title="Anomalies"
-            value={anomalyCount}
-            severity={anomalyCount > 0 ? 'warning' : 'normal'}
-            icon="⚠️"
-          />
-        </div>
-      </div>
-
-      {/* Existing metrics section */}
-      <div className="bg-white border-b border-gray-200 px-6">
-
+        {/* Aggregated Metrics Bar (only for executions view) */}
         {viewMode === 'executions' && executions.length > 0 && (
           <div className="mt-4 grid grid-cols-5 gap-4">
             <div className="bg-blue-50 rounded-lg p-3">
@@ -861,8 +737,9 @@ export default function Monitoring() {
                             setSelectedTrace(trace)
                             setSelectedSpan(trace.root_span)
                           }}
-                          className={`hover:bg-gray-50 cursor-pointer transition-colors ${trace.has_errors ? 'bg-red-50' : ''
-                            }`}
+                          className={`hover:bg-gray-50 cursor-pointer transition-colors ${
+                            trace.has_errors ? 'bg-red-50' : ''
+                          }`}
                         >
                           <td className="px-6 py-4">
                             <div className="text-sm font-medium text-gray-900">
@@ -878,42 +755,6 @@ export default function Monitoring() {
                                 </span>
                               </div>
                             )}
-                            {/* Anomaly Badges */}
-                            {(() => {
-                              const anomalies = detectAnomalies({
-                                start_time: trace.start_time,
-                                end_time: trace.end_time,
-                                duration_ms: trace.duration_ms,
-                                tokens_used: trace.total_tokens,
-                                estimated_cost: trace.total_cost,
-                                status: trace.has_errors ? 'error' : 'success'
-                              }, stats)
-                              return anomalies.length > 0 && (
-                                <div className="mt-1 flex flex-wrap gap-1">
-                                  {anomalies.map((anomaly, idx) => (
-                                    <AnomalyBadge key={idx} anomaly={anomaly} />
-                                  ))}
-                                </div>
-                              )
-                            })()}
-                            {/* Path Anomaly Detection */}
-                            {(() => {
-                              const path = extractNodePath(trace.spans)
-                              const alarm = pathAlarms.find(a =>
-                                trace.workflow_name?.includes(a.workflow) ||
-                                trace.root_span.name.includes(a.workflow)
-                              )
-
-                              if (!alarm) return null
-
-                              const pathAnomaly = detectPathAnomaly(path, alarm)
-                              return pathAnomaly && (
-                                <div className="mt-1">
-                                  <PathAnomalyBadge anomaly={pathAnomaly} />
-                                </div>
-                              )
-                            })()}
-
                           </td>
                           <td className="px-6 py-4">
                             {trace.models_used.length > 0 ? (
@@ -1109,8 +950,9 @@ export default function Monitoring() {
                                 setActiveTab('details')
                               }
                             }}
-                            className={`px-4 py-3 cursor-pointer transition-colors ${isSelected ? 'bg-blue-50 border-l-4 border-l-blue-500' : 'hover:bg-gray-50 border-l-4 border-l-transparent'
-                              }`}
+                            className={`px-4 py-3 cursor-pointer transition-colors ${
+                              isSelected ? 'bg-blue-50 border-l-4 border-l-blue-500' : 'hover:bg-gray-50 border-l-4 border-l-transparent'
+                            }`}
                           >
                             <div className="flex items-center gap-2">
                               <ChevronRight className={`w-4 h-4 text-gray-400 ${isSelected ? 'rotate-90' : ''}`} />
@@ -1147,28 +989,31 @@ export default function Monitoring() {
                           <>
                             <button
                               onClick={() => setActiveTab('prompt')}
-                              className={`px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'prompt'
-                                ? 'text-white border-b-2 border-blue-500'
-                                : 'text-gray-400 hover:text-gray-300'
-                                }`}
+                              className={`px-4 py-3 text-sm font-medium transition-colors ${
+                                activeTab === 'prompt'
+                                  ? 'text-white border-b-2 border-blue-500'
+                                  : 'text-gray-400 hover:text-gray-300'
+                              }`}
                             >
                               Prompt
                             </button>
                             <button
                               onClick={() => setActiveTab('completions')}
-                              className={`px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'completions'
-                                ? 'text-white border-b-2 border-blue-500'
-                                : 'text-gray-400 hover:text-gray-300'
-                                }`}
+                              className={`px-4 py-3 text-sm font-medium transition-colors ${
+                                activeTab === 'completions'
+                                  ? 'text-white border-b-2 border-blue-500'
+                                  : 'text-gray-400 hover:text-gray-300'
+                              }`}
                             >
                               Completions
                             </button>
                             <button
                               onClick={() => setActiveTab('llm_data')}
-                              className={`px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'llm_data'
-                                ? 'text-white border-b-2 border-blue-500'
-                                : 'text-gray-400 hover:text-gray-300'
-                                }`}
+                              className={`px-4 py-3 text-sm font-medium transition-colors ${
+                                activeTab === 'llm_data'
+                                  ? 'text-white border-b-2 border-blue-500'
+                                  : 'text-gray-400 hover:text-gray-300'
+                              }`}
                             >
                               LLM Data
                             </button>
@@ -1176,19 +1021,21 @@ export default function Monitoring() {
                         ) : null}
                         <button
                           onClick={() => setActiveTab('details')}
-                          className={`px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'details'
-                            ? 'text-white border-b-2 border-blue-500'
-                            : 'text-gray-400 hover:text-gray-300'
-                            }`}
+                          className={`px-4 py-3 text-sm font-medium transition-colors ${
+                            activeTab === 'details'
+                              ? 'text-white border-b-2 border-blue-500'
+                              : 'text-gray-400 hover:text-gray-300'
+                          }`}
                         >
                           Details
                         </button>
                         <button
                           onClick={() => setActiveTab('raw')}
-                          className={`px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'raw'
-                            ? 'text-white border-b-2 border-blue-500'
-                            : 'text-gray-400 hover:text-gray-300'
-                            }`}
+                          className={`px-4 py-3 text-sm font-medium transition-colors ${
+                            activeTab === 'raw'
+                              ? 'text-white border-b-2 border-blue-500'
+                              : 'text-gray-400 hover:text-gray-300'
+                          }`}
                         >
                           Raw
                         </button>

@@ -53,7 +53,7 @@ def init_agora(
     app_name: str = "agora-app",
     export_to_console: bool = False,
     export_to_file: Optional[str] = None,
-    disable_content_logging: bool = True,
+    disable_content_logging: bool = False,  # Changed to False to capture chat messages by default
     enable_cloud_upload: bool = True,
     project_name: Optional[str] = None,
     api_key: Optional[str] = None,
@@ -409,15 +409,18 @@ class TracedAsyncNode(AsyncNode):
                 span.set_attribute("total_duration_ms", total_duration)
 
                 if cloud_uploader and cloud_uploader.enabled and cloud_uploader.execution_id:
-                    await cloud_uploader.add_node_execution(
-                        node_name=self.name,
-                        node_type="async_node",
-                        status="success",
-                        started_at=started_at,
-                        completed_at=completed_at,
-                        exec_duration_ms=int(total_duration),
-                        code=getattr(self, 'code', None)
-                    )
+                    try:
+                        await cloud_uploader.add_node_execution(
+                            node_name=self.name,
+                            node_type="async_node",
+                            status="success",
+                            started_at=started_at,
+                            completed_at=completed_at,
+                            exec_duration_ms=int(total_duration),
+                            code=getattr(self, 'code', None)
+                        )
+                    except Exception:
+                        pass  # Telemetry should never crash the workflow
 
                 return post_res
             except Exception as exc:
@@ -425,15 +428,18 @@ class TracedAsyncNode(AsyncNode):
                 completed_at = datetime.utcnow()
 
                 if cloud_uploader and cloud_uploader.enabled and cloud_uploader.execution_id:
-                    await cloud_uploader.add_node_execution(
-                        node_name=self.name,
-                        node_type="async_node",
-                        status="error",
-                        started_at=started_at,
-                        completed_at=completed_at,
-                        error_message=str(exc),
-                        code=getattr(self, 'code', None)
-                    )
+                    try:
+                        await cloud_uploader.add_node_execution(
+                            node_name=self.name,
+                            node_type="async_node",
+                            status="error",
+                            started_at=started_at,
+                            completed_at=completed_at,
+                            error_message=str(exc),
+                            code=getattr(self, 'code', None)
+                        )
+                    except Exception:
+                        pass  # Telemetry should never crash the workflow
 
                 return await self.on_error_async(exc, shared)
 
@@ -459,13 +465,16 @@ class TracedAsyncFlow(AsyncFlow):
 
         execution_id = None
         if cloud_uploader and cloud_uploader.enabled:
-            execution_id = await cloud_uploader.start_execution(
-                workflow_name=self.name,
-                input_data=shared.copy() if isinstance(shared, dict) else {}
-            )
-            # Register the workflow graph structure (nodes and edges)
-            if hasattr(self, 'to_dict'):
-                await cloud_uploader.register_workflow_graph(self.to_dict())
+            try:
+                execution_id = await cloud_uploader.start_execution(
+                    workflow_name=self.name,
+                    input_data=shared.copy() if isinstance(shared, dict) else {}
+                )
+                # Register the workflow graph structure (nodes and edges)
+                if hasattr(self, 'to_dict'):
+                    await cloud_uploader.register_workflow_graph(self.to_dict())
+            except Exception:
+                pass  # Telemetry should never crash the workflow
 
         with trace.get_tracer("agora_tracer").start_as_current_span(f"{self.name}.flow") as span:
             span.set_attribute("agora.flow", self.name)
@@ -482,20 +491,26 @@ class TracedAsyncFlow(AsyncFlow):
                 span.set_attribute("total_duration_ms", total_duration)
 
                 if cloud_uploader and cloud_uploader.enabled:
-                    await cloud_uploader.complete_execution(
-                        status="success",
-                        output_data=shared.copy() if isinstance(shared, dict) else {}
-                    )
+                    try:
+                        await cloud_uploader.complete_execution(
+                            status="success",
+                            output_data=shared.copy() if isinstance(shared, dict) else {}
+                        )
+                    except Exception:
+                        pass  # Telemetry should never crash the workflow
 
                 return post_res
             except Exception as exc:
                 span.record_exception(exc)
 
                 if cloud_uploader and cloud_uploader.enabled:
-                    await cloud_uploader.complete_execution(
-                        status="error",
-                        error_message=str(exc)
-                    )
+                    try:
+                        await cloud_uploader.complete_execution(
+                            status="error",
+                            error_message=str(exc)
+                        )
+                    except Exception:
+                        pass  # Telemetry should never crash the workflow
 
                 return await self.on_error_async(exc, shared)
 

@@ -26,36 +26,52 @@ supabase = create_client(
 )
 
 TELEMETRY_SCHEMA = """
-You have access to a PostgreSQL telemetry database with the following schema:
+You have access to a PostgreSQL telemetry database with WIDE EVENTS - one comprehensive event per workflow execution.
 
-Table: telemetry_spans
+Table: telemetry_wide_events
 Columns:
-- id (uuid) - unique span ID
-- execution_id (uuid) - groups spans from same execution
+- id (uuid) - unique event ID
+- execution_id (uuid) - unique execution identifier
 - trace_id (text) - trace identifier
-- name (text) - node/workflow name (e.g., "ChatTurn.flow", "ProcessMessage.exec")
-- kind (text) - span type
-- status (text) - 'success' or 'error'
-- start_time (timestamp) - when span started
-- end_time (timestamp) - when span ended
-- duration_ms (integer) - duration in milliseconds
+- timestamp (timestamptz) - when execution started
+- workflow_name (text) - e.g., "ChatTurn.flow", "DataPipeline"
+- workflow_version (text) - version of the workflow
+- node_path (text[]) - array of nodes executed in order
+- user_id (text) - user who triggered execution
+- organization_id (uuid) - organization
+- subscription_tier (text) - "free", "premium", "enterprise"
+- account_age_days (integer) - user account age
+- duration_ms (integer) - total execution time in milliseconds
 - tokens_used (integer) - LLM tokens consumed
-- estimated_cost (numeric) - estimated cost in dollars
-- attributes (jsonb) - additional metadata
-- organization_id (uuid) - organization that owns this data
+- estimated_cost (numeric) - cost in dollars
+- llm_latency_ms (integer) - LLM API latency
+- llm_calls_count (integer) - number of LLM calls
+- status (text) - 'success' or 'error'
+- error_type (text) - exception type if failed
+- error_message (text) - error details
+- error_code (text) - error code
+- retry_count (integer) - number of retries
+- feature_flags (jsonb) - enabled features as JSON
+- deployment_id (text) - deployment identifier
+- region (text) - region where executed
+- service_version (text) - service version
+- event (jsonb) - full event data as JSON
+- created_at (timestamptz) - when event was created
 
 Important notes:
-- To calculate duration from timestamps: EXTRACT(EPOCH FROM (end_time - start_time))
-- Workflow names often have suffixes like ".flow", ".node", ".prep", ".exec", ".post"
+- ONE row per execution (not multiple spans)
+- All metrics are pre-aggregated
 - Use ILIKE for case-insensitive pattern matching
-- Group by execution_id to get per-execution metrics
-- Always include organization_id filter for security
+- Query feature_flags with: feature_flags->>'flag_name'
+- Query event data with: event->>'key'
+- Always filter by organization_id for security
 
 Common query patterns:
-1. Average duration: SELECT AVG(duration_ms)/1000.0 as avg_seconds FROM telemetry_spans WHERE name ILIKE '%WorkflowName%'
-2. Total cost: SELECT SUM(estimated_cost) FROM telemetry_spans WHERE start_time > NOW() - INTERVAL '7 days'
-3. Failed executions: SELECT DISTINCT execution_id, name FROM telemetry_spans WHERE status = 'error'
-4. Recent executions: SELECT * FROM telemetry_spans ORDER BY start_time DESC LIMIT 10
+1. Average duration: SELECT AVG(duration_ms)/1000.0 as avg_seconds FROM telemetry_wide_events WHERE workflow_name ILIKE '%ChatTurn%'
+2. Total cost: SELECT SUM(estimated_cost) FROM telemetry_wide_events WHERE timestamp > NOW() - INTERVAL '7 days'
+3. Failed executions: SELECT execution_id, workflow_name, error_type, error_message FROM telemetry_wide_events WHERE status = 'error' ORDER BY timestamp DESC LIMIT 10
+4. Error rate by tier: SELECT subscription_tier, COUNT(*) FILTER (WHERE status = 'error') * 100.0 / COUNT(*) as error_rate FROM telemetry_wide_events GROUP BY subscription_tier
+5. Slowest workflows: SELECT workflow_name, AVG(duration_ms) as avg_duration FROM telemetry_wide_events GROUP BY workflow_name ORDER BY avg_duration DESC
 """
 
 def generate_sql(question: str) -> str:
@@ -97,10 +113,10 @@ def execute_query(sql: str):
         # For demonstration, we'll parse simple queries
         # In production, use supabase.rpc('execute_sql', {'query': sql})
         
-        # Simplified execution - just query the table
-        result = supabase.table('telemetry_spans')\
+        # Simplified execution - just query the wide events table
+        result = supabase.table('telemetry_wide_events')\
             .select('*')\
-            .order('start_time', desc=True)\
+            .order('timestamp', desc=True)\
             .limit(100)\
             .execute()
         

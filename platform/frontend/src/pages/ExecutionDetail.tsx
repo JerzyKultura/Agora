@@ -2,6 +2,8 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import { supabase } from '../lib/supabase'
+import WorkflowGraph from '../components/WorkflowGraph'
+import CodeViewer from '../components/CodeViewer'
 
 interface Execution {
   id: string
@@ -34,6 +36,13 @@ interface Node {
   id: string
   name: string
   type: string
+}
+
+interface Edge {
+  id: string
+  source_node_id: string
+  target_node_id: string
+  workflow_id: string
 }
 
 interface Span {
@@ -130,8 +139,13 @@ export default function ExecutionDetail() {
   const [nodeExecutions, setNodeExecutions] = useState<NodeExecution[]>([])
   const [spans, setSpans] = useState<Span[]>([])
   const [nodes, setNodes] = useState<Map<string, Node>>(new Map())
+  const [graphNodes, setGraphNodes] = useState<Array<{ id: string; label: string; type?: string }>>([])
+  const [graphEdges, setGraphEdges] = useState<Array<{ source: string; target: string }>>([])
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+  const [nodeDetailTab, setNodeDetailTab] = useState<'details' | 'code' | 'data'>('details')
+  const [nodeData, setNodeData] = useState<Record<string, { content: string; language: string }>>({})
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'timeline' | 'trace' | 'details' | 'data'>('timeline')
+  const [activeTab, setActiveTab] = useState<'timeline' | 'workflow' | 'trace' | 'details' | 'data'>('timeline')
   const [selectedSpan, setSelectedSpan] = useState<Span | null>(null)
 
   useEffect(() => {
@@ -189,6 +203,49 @@ export default function ExecutionDetail() {
 
       const spansData = await api.executions.getSpans(executionId!)
       setSpans(spansData)
+
+      // Load workflow graph data
+      const graphData = await api.workflows.getGraph(execData.workflow_id)
+
+      // Transform nodes with execution data
+      const transformedNodes = graphData.nodes.map((node: Node) => {
+        const nodeExec = nodeExecs.find((ne: NodeExecution) => ne.node_id === node.id)
+        let label = node.name
+
+        if (nodeExec) {
+          const duration = nodeExec.exec_duration_ms || 0
+          label = `${node.name}\n${formatDuration(duration)}`
+        }
+
+        return {
+          id: node.id,
+          label,
+          type: node.type
+        }
+      })
+
+      // Transform edges
+      const transformedEdges = graphData.edges.map((edge: Edge) => ({
+        source: edge.source_node_id,
+        target: edge.target_node_id
+      }))
+
+      setGraphNodes(transformedNodes)
+      setGraphEdges(transformedEdges)
+
+      // Map node details (prioritize code, fallback to config)
+      const detailMap: Record<string, { content: string; language: string }> = {}
+      nodesData.forEach((n: Node) => {
+        if ((n as any).code) {
+          detailMap[n.id] = { content: (n as any).code, language: 'python' }
+        } else {
+          detailMap[n.id] = {
+            content: (n as any).config ? JSON.stringify((n as any).config, null, 2) : "No details available",
+            language: 'json'
+          }
+        }
+      })
+      setNodeData(detailMap)
     } catch (error) {
       console.error('Failed to load execution:', error)
     } finally {
@@ -269,6 +326,12 @@ export default function ExecutionDetail() {
             className={`px-4 py-2 font-medium ${activeTab === 'timeline' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
           >
             Timeline
+          </button>
+          <button
+            onClick={() => setActiveTab('workflow')}
+            className={`px-4 py-2 font-medium ${activeTab === 'workflow' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            Workflow
           </button>
           <button
             onClick={() => setActiveTab('trace')}
@@ -354,6 +417,182 @@ export default function ExecutionDetail() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {activeTab === 'workflow' && (
+        <div className="grid grid-cols-12 gap-6">
+          <div className="col-span-12 lg:col-span-8 bg-white rounded-lg shadow overflow-hidden">
+            <div className="p-4 border-b border-gray-100 bg-gray-50">
+              <h3 className="font-semibold text-gray-700">Workflow Graph</h3>
+              <p className="text-xs text-gray-500 mt-1">Click on nodes to see execution details</p>
+            </div>
+            <div className="p-6">
+              {graphNodes.length > 0 ? (
+                <WorkflowGraph
+                  nodes={graphNodes}
+                  edges={graphEdges}
+                  onNodeClick={(nodeId) => setSelectedNodeId(nodeId)}
+                />
+              ) : (
+                <div className="p-12 text-center text-gray-500">
+                  No workflow graph data available
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="col-span-12 lg:col-span-4 space-y-4">
+            <div className="bg-white rounded-lg shadow flex flex-col h-full">
+              <div className="p-4 border-b border-gray-100">
+                <h3 className="font-semibold text-gray-700">Node Information</h3>
+              </div>
+              {selectedNodeId ? (() => {
+                const node = nodes.get(selectedNodeId)
+                const nodeExec = nodeExecutions.find((ne: NodeExecution) => ne.node_id === selectedNodeId)
+
+                if (!node) {
+                  return <div className="text-sm text-gray-400 italic text-center py-10">Node not found</div>
+                }
+
+                return (
+                  <div className="flex flex-col flex-1 overflow-hidden">
+                    {/* Node Header */}
+                    <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
+                      <div className="text-sm font-medium text-gray-900">{node.name}</div>
+                      <div className="text-xs text-gray-500 mt-1">{node.type}</div>
+                    </div>
+
+                    {/* Tabs */}
+                    <div className="border-b border-gray-200 flex gap-1 px-4">
+                      <button
+                        onClick={() => setNodeDetailTab('details')}
+                        className={`px-3 py-2 text-sm font-medium transition-colors ${nodeDetailTab === 'details'
+                            ? 'text-blue-600 border-b-2 border-blue-600'
+                            : 'text-gray-500 hover:text-gray-700'
+                          }`}
+                      >
+                        Details
+                      </button>
+                      <button
+                        onClick={() => setNodeDetailTab('code')}
+                        className={`px-3 py-2 text-sm font-medium transition-colors ${nodeDetailTab === 'code'
+                            ? 'text-blue-600 border-b-2 border-blue-600'
+                            : 'text-gray-500 hover:text-gray-700'
+                          }`}
+                      >
+                        Code
+                      </button>
+                      <button
+                        onClick={() => setNodeDetailTab('data')}
+                        className={`px-3 py-2 text-sm font-medium transition-colors ${nodeDetailTab === 'data'
+                            ? 'text-blue-600 border-b-2 border-blue-600'
+                            : 'text-gray-500 hover:text-gray-700'
+                          }`}
+                      >
+                        Data
+                      </button>
+                    </div>
+
+                    {/* Tab Content */}
+                    <div className="flex-1 overflow-auto">
+                      {nodeDetailTab === 'details' && (
+                        <div className="p-4 space-y-4">
+                          {nodeExec ? (
+                            <>
+                              <div>
+                                <div className="text-xs text-gray-500 uppercase font-bold">Status</div>
+                                <span className={`text-xs px-2 py-0.5 rounded font-semibold ${getStatusColor(nodeExec.status)}`}>
+                                  {nodeExec.status}
+                                </span>
+                              </div>
+                              <div>
+                                <div className="text-xs text-gray-500 uppercase font-bold">Execution Time</div>
+                                <div className="text-sm text-gray-700">
+                                  {nodeExec.prep_duration_ms && (
+                                    <div>Prep: {formatDuration(nodeExec.prep_duration_ms)}</div>
+                                  )}
+                                  {nodeExec.exec_duration_ms && (
+                                    <div className="font-semibold">Exec: {formatDuration(nodeExec.exec_duration_ms)}</div>
+                                  )}
+                                  {nodeExec.post_duration_ms && (
+                                    <div>Post: {formatDuration(nodeExec.post_duration_ms)}</div>
+                                  )}
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-xs text-gray-500 uppercase font-bold">Started At</div>
+                                <div className="text-xs text-gray-700">{formatDate(nodeExec.started_at)}</div>
+                              </div>
+                              {nodeExec.completed_at && (
+                                <div>
+                                  <div className="text-xs text-gray-500 uppercase font-bold">Completed At</div>
+                                  <div className="text-xs text-gray-700">{formatDate(nodeExec.completed_at)}</div>
+                                </div>
+                              )}
+                              {nodeExec.retry_count > 0 && (
+                                <div>
+                                  <div className="text-xs text-gray-500 uppercase font-bold">Retries</div>
+                                  <div className="text-sm text-yellow-600 font-semibold">{nodeExec.retry_count}</div>
+                                </div>
+                              )}
+                              {nodeExec.error_message && (
+                                <div>
+                                  <div className="text-xs text-gray-500 uppercase font-bold">Error</div>
+                                  <div className="text-xs text-red-600 bg-red-50 p-2 rounded">{nodeExec.error_message}</div>
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <div className="text-sm text-gray-400 italic">No execution data for this node</div>
+                          )}
+                        </div>
+                      )}
+
+                      {nodeDetailTab === 'code' && (
+                        <div className="h-full">
+                          <CodeViewer
+                            code={nodeData[selectedNodeId]?.content || "# No code available"}
+                            language={nodeData[selectedNodeId]?.language || "python"}
+                          />
+                        </div>
+                      )}
+
+                      {nodeDetailTab === 'data' && (
+                        <div className="p-4 space-y-4">
+                          {nodeExec && (nodeExec as any).input_data ? (
+                            <>
+                              <div>
+                                <div className="text-xs text-gray-500 uppercase font-bold mb-2">Input Data</div>
+                                <pre className="text-xs bg-gray-50 p-3 rounded border overflow-auto max-h-48">
+                                  {JSON.stringify((nodeExec as any).input_data, null, 2)}
+                                </pre>
+                              </div>
+                              {(nodeExec as any).output_data && (
+                                <div>
+                                  <div className="text-xs text-gray-500 uppercase font-bold mb-2">Output Data</div>
+                                  <pre className="text-xs bg-gray-50 p-3 rounded border overflow-auto max-h-48">
+                                    {JSON.stringify((nodeExec as any).output_data, null, 2)}
+                                  </pre>
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <div className="text-sm text-gray-400 italic text-center py-10">
+                              No input/output data available for this node execution
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })() : (
+                <div className="text-sm text-gray-400 italic text-center py-10">
+                  Select a node to view details
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 

@@ -29,7 +29,8 @@ class SupabaseUploader:
         supabase_key: Optional[str] = None,
         api_key: Optional[str] = None,
         project_id: Optional[str] = None,
-        org_id: Optional[str] = None
+        org_id: Optional[str] = None,
+        silent_mode: bool = False
     ):
         self.project_name = project_name or "default"
         self.supabase_url = supabase_url or os.environ.get("VITE_SUPABASE_URL")
@@ -37,6 +38,7 @@ class SupabaseUploader:
         self.api_key = api_key or os.environ.get("AGORA_API_KEY")
         self.force_project_id = project_id or os.environ.get("AGORA_PROJECT_ID")
         self.force_org_id = org_id or os.environ.get("AGORA_ORG_ID")
+        self.silent_mode = silent_mode  # Suppress all warnings if True
 
         self.execution_id: Optional[str] = None
         self.workflow_id: Optional[str] = None
@@ -50,17 +52,25 @@ class SupabaseUploader:
         self.enabled = bool(self.supabase_url and self.supabase_key and SUPABASE_AVAILABLE)
 
         if self.enabled:
-            self.client: Client = create_client(self.supabase_url, self.supabase_key)
-            print(f"✅ Supabase uploader enabled for project: {self.project_name}")
-            if self.api_key:
-                masked_key = f"{self.api_key[:4]}...{self.api_key[-4:]}" if len(self.api_key) > 8 else "***"
-                print(f"🔑 Agora API Key verified: {masked_key}")
+            try:
+                self.client: Client = create_client(self.supabase_url, self.supabase_key)
+                if not self.silent_mode:
+                    print(f"✅ Supabase uploader enabled for project: {self.project_name}")
+                if self.api_key and not self.silent_mode:
+                    masked_key = f"{self.api_key[:4]}...{self.api_key[-4:]}" if len(self.api_key) > 8 else "***"
+                    print(f"🔑 Agora API Key verified: {masked_key}")
+            except Exception as e:
+                self.enabled = False
+                self.client = None
+                if not self.silent_mode:
+                    print(f"⚠️  Failed to initialize Supabase client: {e}")
         else:
             self.client = None
-            if not SUPABASE_AVAILABLE:
-                print("⚠️  supabase-py not installed - run: pip install supabase")
-            if not self.supabase_url or not self.supabase_key:
-                print("⚠️  VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY not set")
+            if not self.silent_mode:
+                if not SUPABASE_AVAILABLE:
+                    print("⚠️  supabase-py not installed - run: pip install supabase")
+                if not self.supabase_url or not self.supabase_key:
+                    print("⚠️  VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY not set")
 
     async def _with_retry(self, func, *args, max_retries=3, initial_delay=1, data_to_retry=None, **kwargs):
         """Execute a function with exponential backoff retry.
@@ -99,15 +109,16 @@ class SupabaseUploader:
                 
                 if attempt < max_retries - 1:
                     # Don't print full error for PGRST204 if we're trying to fix it
-                    if "PGRST204" not in error_str:
+                    if "PGRST204" not in error_str and not self.silent_mode:
                         print(f"⚠️  Upload attempt {attempt+1} failed ({e}), retrying in {delay}s...")
                     await asyncio.sleep(delay)
                     delay *= 2
                 else:
-                    if "PGRST204" in error_str:
-                        print(f"❌  Upload failed: Your database schema is out of sync. Please run the migrations in all_migrations.sql.")
-                    else:
-                        print(f"❌  Upload failed after {max_retries} attempts: {e}")
+                    if not self.silent_mode:
+                        if "PGRST204" in error_str:
+                            print(f"❌  Upload failed: Your database schema is out of sync. Please run the migrations in all_migrations.sql.")
+                        else:
+                            print(f"❌  Upload failed after {max_retries} attempts: {e}")
         
         return None
 
@@ -178,7 +189,8 @@ class SupabaseUploader:
             }).execute()
             return result.data[0]["id"]
         except Exception as e:
-            print(f"⚠️  Failed to get organization: {e}")
+            if not self.silent_mode:
+                print(f"⚠️  Failed to get organization: {e}")
             return None
 
     async def _get_or_create_project(self) -> Optional[str]:
@@ -213,7 +225,8 @@ class SupabaseUploader:
             }).execute()
             return result.data[0]["id"]
         except Exception as e:
-            print(f"⚠️  Failed to get/create project: {e}")
+            if not self.silent_mode:
+                print(f"⚠️  Failed to get/create project: {e}")
             return None
 
     async def _get_or_create_workflow(self, workflow_name: str) -> Optional[str]:
@@ -242,7 +255,8 @@ class SupabaseUploader:
             }).execute()
             return result.data[0]["id"]
         except Exception as e:
-            print(f"⚠️  Failed to get/create workflow: {e}")
+            if not self.silent_mode:
+                print(f"⚠️  Failed to get/create workflow: {e}")
             return None
 
     async def _register_node(self, node_name: str, node_type: str = "async_node", description: str = "", code: Optional[str] = None) -> Optional[str]:
@@ -278,7 +292,9 @@ class SupabaseUploader:
                 }
             }, method="insert")
             return result.data[0]["id"] if result and result.data else None
-        except Exception:
+        except Exception as e:
+            if not self.silent_mode:
+                print(f"⚠️  Failed to register node '{node_name}': {e}")
             return None
 
     async def _register_edge(self, source_node_name: str, target_node_name: str, label: str = "") -> Optional[str]:
@@ -394,12 +410,14 @@ class SupabaseUploader:
 
             if result and result.data:
                 self.execution_id = result.data[0]["id"]
-                print(f"📊 Created standalone execution: {self.execution_id}")
+                if not self.silent_mode:
+                    print(f"📊 Created standalone execution: {self.execution_id}")
                 return self.execution_id
             return None
 
         except Exception as e:
-            print(f"⚠️  Failed to create standalone execution: {e}")
+            if not self.silent_mode:
+                print(f"⚠️  Failed to create standalone execution: {e}")
             return None
 
     async def start_execution(self, workflow_name: str, input_data: Optional[Dict[str, Any]] = None) -> Optional[str]:
@@ -459,9 +477,21 @@ class SupabaseUploader:
 
             # Parse started_at and ensure it's timezone-aware
             started_at_str = exec_result.data["started_at"]
-            if started_at_str.endswith('Z'):
-                started_at_str = started_at_str[:-1] + '+00:00'
-            started_at = datetime.fromisoformat(started_at_str)
+            # Parse started_at timestamp - handle microseconds properly
+            import re
+            # Pad microseconds to exactly 6 digits
+            def fix_microseconds(timestamp_str):
+                # Match timestamp with microseconds
+                match = re.match(r'(.+\.)(\d+)(\+.+|Z)$', timestamp_str)
+                if match:
+                    base, microseconds, tz = match.groups()
+                    # Pad or truncate to 6 digits
+                    microseconds = microseconds.ljust(6, '0')[:6]
+                    return f"{base}{microseconds}{tz}"
+                return timestamp_str
+            
+            started_at_str = fix_microseconds(started_at_str)
+            started_at = datetime.fromisoformat(started_at_str.replace('Z', '+00:00'))
             
             # Ensure started_at is timezone-aware
             if started_at.tzinfo is None:
@@ -480,10 +510,12 @@ class SupabaseUploader:
             }, method="update", query_params={"id": self.execution_id})
 
             await self.flush_spans() # Flush any remaining spans
-            print(f"✅ Completed execution: {self.execution_id} ({status})")
+            if not self.silent_mode:
+                print(f"✅ Completed execution: {self.execution_id} ({status})")
 
         except Exception as e:
-            print(f"⚠️  Failed to complete execution: {e}")
+            if not self.silent_mode:
+                print(f"⚠️  Failed to complete execution: {e}")
 
     async def flush_spans(self):
         """Flush buffered spans to Supabase"""
@@ -495,7 +527,8 @@ class SupabaseUploader:
             self.span_buffer = []
             await self._execute_resilient("telemetry_spans", spans_to_upload, method="insert")
         except Exception as e:
-            print(f"⚠️  Failed to flush spans: {e}")
+            if not self.silent_mode:
+                print(f"⚠️  Failed to flush spans: {e}")
 
     async def add_spans(self, spans: List[Dict[str, Any]]):
         """Add spans to the buffer"""
@@ -506,12 +539,20 @@ class SupabaseUploader:
         if not self.execution_id:
             await self._create_standalone_execution()
             if not self.execution_id:
+                if not self.silent_mode:
+                    print("⚠️  Cannot add spans: Failed to create execution")
                 return  # Still no execution_id, bail out
 
         try:
             # Get organization ID for multi-tenant filtering
             if not self.organization_id:
                 self.organization_id = await self._get_or_create_org()
+            
+            # Validate organization_id exists
+            if not self.organization_id:
+                if not self.silent_mode:
+                    print("⚠️  Cannot add spans: No organization_id available. Data isolation cannot be guaranteed.")
+                return  # Don't upload without org_id to prevent cross-account visibility
             
             org_id = self.organization_id
             
@@ -537,7 +578,8 @@ class SupabaseUploader:
             if len(self.span_buffer) >= self.batch_size:
                 await self.flush_spans()
         except Exception as e:
-            print(f"⚠️  Failed to add spans to buffer: {e}")
+            if not self.silent_mode:
+                print(f"⚠️  Failed to add spans to buffer: {e}")
 
     async def add_node_execution(
         self,
@@ -582,7 +624,8 @@ class SupabaseUploader:
             }, method="insert")
 
         except Exception as e:
-            print(f"⚠️  Failed to add node execution telemetry for '{node_name}': {e}")
+            if not self.silent_mode:
+                print(f"⚠️  Failed to add node execution telemetry for '{node_name}': {e}")
 
 
 def create_supabase_uploader(

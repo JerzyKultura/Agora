@@ -1,0 +1,238 @@
+# Agora Framework - Cursor AI Rules
+
+## Project Overview
+Agora is a Python framework for building observable AI workflows with built-in telemetry, error handling, and cloud monitoring.
+
+## Code Style & Conventions
+
+### Python Style
+- Follow PEP 8 guidelines
+- Use type hints for all function signatures
+- Prefer async/await for I/O operations
+- Use descriptive variable names (no single letters except in loops)
+- Maximum line length: 100 characters
+
+### Naming Conventions
+- Classes: PascalCase (e.g., `AsyncNode`, `WorkflowBuilder`)
+- Functions/Methods: snake_case (e.g., `exec_async`, `add_node`)
+- Constants: UPPER_SNAKE_CASE (e.g., `MAX_RETRIES`, `DEFAULT_TIMEOUT`)
+- Private methods: prefix with underscore (e.g., `_internal_method`)
+
+### Documentation
+- All public classes and functions must have docstrings
+- Use Google-style docstrings with Args, Returns, and Examples
+- Include type information in docstrings
+- Add inline comments for complex logic
+
+## Architecture Patterns
+
+### Node Pattern
+```python
+class MyNode(AsyncNode):
+    def __init__(self):
+        super().__init__("node_name", max_retries=3, wait=1)
+    
+    async def prep_async(self, shared):
+        # Extract and prepare data
+        return shared.get("input")
+    
+    async def exec_async(self, prep_res):
+        # Main logic here
+        result = process(prep_res)
+        return result
+    
+    async def post_async(self, shared, prep_res, exec_res):
+        # Store results in shared state
+        shared["output"] = exec_res
+        return exec_res
+```
+
+### Flow Pattern
+```python
+class MyFlow(AsyncFlow):
+    def __init__(self):
+        # Create nodes
+        node1 = Node1()
+        node2 = Node2()
+        
+        # Set up routing
+        node1.successors = {"default": node2}
+        
+        # Initialize with start node
+        super().__init__("Flow Name", start=node1)
+```
+
+## Common Patterns
+
+### Error Handling
+- Always use try-except in telemetry code
+- Never let telemetry failures crash workflows
+- Use `silent_mode` parameter for graceful degradation
+- Implement retry logic with exponential backoff
+
+### Telemetry
+- Initialize with `init_agora()` at application start
+- Use `set_business_context()` for user/session tracking
+- Wrap LLM calls with `trace_openai_call()`
+- Always include organization_id for multi-tenant apps
+
+### Testing
+- Write async tests with `pytest-asyncio`
+- Mock external dependencies (Supabase, OpenAI)
+- Test both success and failure paths
+- Verify telemetry data is captured correctly
+
+## File Organization
+
+### Core Files
+- `__init__.py`: Core Node and Flow classes
+- `agora_tracer.py`: OpenTelemetry integration
+- `supabase_uploader.py`: Cloud telemetry upload
+- `wide_events.py`: Business context enrichment
+
+### Utility Files
+- `builder.py`: Fluent DSL for workflows
+- `engine.py`: Event-driven execution
+- `inspector.py`: Debugging and visualization
+- `registry.py`: Node registration system
+
+### Instrumentation
+- `instrument.py`: OpenTelemetry setup
+- `instrument_openai.py`: LLM call tracing
+- `telemetry.py`: Audit logging
+- `token_monitor.py`: Budget tracking
+
+## Common Tasks
+
+### Adding a New Node
+1. Create class inheriting from `AsyncNode`
+2. Implement `exec_async()` method
+3. Optionally implement `prep_async()` and `post_async()`
+4. Add retry logic via `max_retries` parameter
+5. Register with `@register_node` decorator if using builder
+
+### Adding Telemetry
+1. Import: `from agora.agora_tracer import init_agora`
+2. Initialize at startup with API keys
+3. All node executions are automatically tracked
+4. Add business context with `set_business_context()`
+
+### Debugging Workflows
+1. Use `FlowInspector` to visualize structure
+2. Check dashboard at `localhost:5173/monitoring`
+3. Enable console logging with `enable_console=True`
+4. Export traces with `tracer.export_json()`
+
+## Environment Variables
+
+Required for cloud monitoring:
+```bash
+AGORA_API_KEY=agora_your_key
+VITE_SUPABASE_URL=https://xxx.supabase.co
+VITE_SUPABASE_ANON_KEY=your_anon_key
+```
+
+Optional:
+```bash
+AGORA_PROJECT_ID=proj_xxx
+AGORA_ORG_ID=org_xxx
+```
+
+## Best Practices
+
+### Performance
+- Use async/await for I/O operations
+- Batch telemetry uploads (default: 50 items)
+- Implement connection pooling for external APIs
+- Cache expensive computations
+
+### Security
+- Never log sensitive data (passwords, API keys)
+- Use environment variables for credentials
+- Validate organization_id before database queries
+- Sanitize user inputs
+
+### Observability
+- Add descriptive node names
+- Include relevant attributes in telemetry
+- Set business context for user tracking
+- Monitor token usage and costs
+
+### Error Handling
+- Implement fallback logic in `exec_fallback_async()`
+- Use retries for transient failures
+- Log errors but don't crash workflows
+- Provide meaningful error messages
+
+## Code Review Checklist
+
+- [ ] Type hints on all function signatures
+- [ ] Docstrings for public methods
+- [ ] Error handling with try-except
+- [ ] Telemetry doesn't crash on failure
+- [ ] Tests for new functionality
+- [ ] Environment variables documented
+- [ ] No hardcoded credentials
+- [ ] Async/await used correctly
+- [ ] Organization isolation enforced
+- [ ] Performance considerations addressed
+
+## Example Workflow
+
+```python
+from agora import AsyncNode, AsyncFlow
+from agora.agora_tracer import init_agora
+from agora.wide_events import set_business_context
+
+# Initialize
+init_agora(project_name="My App", api_key="agora_xxx")
+
+# Set context
+set_business_context({"user_id": "user_123"})
+
+# Define nodes
+class FetchNode(AsyncNode):
+    async def exec_async(self, prep_res):
+        return await fetch_data()
+
+class ProcessNode(AsyncNode):
+    async def exec_async(self, prep_res):
+        return process(prep_res)
+
+# Build flow
+fetch = FetchNode()
+process = ProcessNode()
+fetch.successors = {"default": process}
+
+flow = AsyncFlow("Pipeline", start=fetch)
+
+# Run
+result = await flow.run_async({})
+```
+
+## Troubleshooting
+
+### Telemetry not appearing
+- Check AGORA_API_KEY is set
+- Verify Supabase credentials
+- Check organization_id is correct
+- Look for errors in console
+
+### Workflow not executing
+- Verify node successors are set
+- Check for exceptions in exec_async()
+- Ensure prep_async() returns data
+- Test nodes individually first
+
+### High token costs
+- Use TokenMonitor to track usage
+- Set budget limits with set_budget()
+- Monitor expensive executions
+- Optimize prompts and models
+
+## Resources
+
+- Documentation: See README.md
+- Examples: See comprehensive_workflow_demo.py
+- Dashboard: http://localhost:5173/monitoring
+- Issues: Report on GitHub

@@ -16,6 +16,7 @@ import CostDashboard from './pages/CostDashboard'
 import Organizations from './pages/Organizations'
 import TelemetryExplorer from './pages/TelemetryExplorer'
 import TelemetryLogs from './pages/TelemetryLogs'
+import TelemetryChat from './pages/TelemetryChat'
 
 function App() {
   const [user, setUser] = useState<User | null>(null)
@@ -57,6 +58,7 @@ function App() {
           <Route path="analytics/:projectId" element={<Analytics />} />
           <Route path="telemetry-explorer" element={<TelemetryExplorer />} />
           <Route path="telemetry-logs" element={<TelemetryLogs />} />
+          <Route path="telemetry-chat" element={<TelemetryChat />} />
           <Route path="cost" element={<CostDashboard />} />
           <Route path="organizations" element={<Organizations />} />
           <Route path="executions/:executionId" element={<ExecutionDetail />} />
