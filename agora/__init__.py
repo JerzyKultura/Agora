@@ -429,6 +429,10 @@ __all__ = [
     'AsyncBatchFlow', 'AsyncParallelBatchFlow'
 ]
 
-# Import init_agora from agora_tracer
-from agora.agora_tracer import init_agora
-__all__.append('init_agora')
+# Import init_agora from agora_tracer (optional - requires telemetry dependencies)
+try:
+    from agora.agora_tracer import init_agora
+    __all__.append('init_agora')
+except ImportError:
+    # Telemetry dependencies not installed, skip
+    pass

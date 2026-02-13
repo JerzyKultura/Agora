@@ -113,7 +113,7 @@ export default function Login() {
         <div className="mt-6 p-4 bg-blue-50 rounded-md">
           <p className="text-sm text-gray-700 font-medium mb-2">Demo Account</p>
           <p className="text-xs text-gray-600">
-            Email: demo@agora.cloud<br/>
+            Email: demo@agora.cloud<br />
             Password: demo123
           </p>
         </div>

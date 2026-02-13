@@ -1,0 +1,97 @@
+{
+  "authenticate_user": {
+    "name": "authenticate_user",
+    "code": "def authenticate_user(username, password): ...",
+    "tags": [
+      "auth",
+      "security"
+    ],
+    "created_at": "2026-02-08T12:45:48.835567",
+    "last_used": "2026-02-08T12:45:48.936423",
+    "usage_count": 10,
+    "success_count": 9,
+    "failure_count": 1,
+    "signature": "authenticate_user(username: str, password: str) -> str",
+    "docstring": "Authenticate a user with username and password using JWT tokens. Validates credentials against the database and returns a session token.",
+    "parameters": null,
+    "return_type": null,
+    "dependencies": null,
+    "module_path": null
+  },
+  "verify_jwt_token": {
+    "name": "verify_jwt_token",
+    "code": "def verify_jwt_token(token): ...",
+    "tags": [
+      "auth",
+      "validation"
+    ],
+    "created_at": "2026-02-08T12:45:48.880998",
+    "last_used": "2026-02-08T12:45:48.938832",
+    "usage_count": 5,
+    "success_count": 5,
+    "failure_count": 0,
+    "signature": "verify_jwt_token(token: str) -> dict",
+    "docstring": "Verify JWT token validity and extract user claims. Checks signature and expiration.",
+    "parameters": null,
+    "return_type": null,
+    "dependencies": null,
+    "module_path": null
+  },
+  "send_notification_email": {
+    "name": "send_notification_email",
+    "code": "def send_notification_email(to, subject, body): ...",
+    "tags": [
+      "notification",
+      "email"
+    ],
+    "created_at": "2026-02-08T12:45:48.894298",
+    "last_used": "2026-02-08T12:45:48.941834",
+    "usage_count": 8,
+    "success_count": 4,
+    "failure_count": 4,
+    "signature": "send_notification_email(to: str, subject: str, body: str) -> bool",
+    "docstring": "Send an email notification to a user via SMTP. Supports HTML templates.",
+    "parameters": null,
+    "return_type": null,
+    "dependencies": null,
+    "module_path": null
+  },
+  "process_payment_stripe": {
+    "name": "process_payment_stripe",
+    "code": "def process_payment_stripe(amount, card): ...",
+    "tags": [
+      "payment",
+      "transaction"
+    ],
+    "created_at": "2026-02-08T12:45:48.905880",
+    "last_used": "2026-02-08T12:45:48.942616",
+    "usage_count": 3,
+    "success_count": 1,
+    "failure_count": 2,
+    "signature": "process_payment_stripe(amount: float, card: str) -> str",
+    "docstring": "Process credit card payment through Stripe payment gateway. Returns transaction ID.",
+    "parameters": null,
+    "return_type": null,
+    "dependencies": null,
+    "module_path": null
+  },
+  "validate_email_format": {
+    "name": "validate_email_format",
+    "code": "def validate_email_format(email): ...",
+    "tags": [
+      "validation",
+      "email"
+    ],
+    "created_at": "2026-02-08T12:45:48.919619",
+    "last_used": "2026-02-08T12:45:48.919619",
+    "usage_count": 0,
+    "success_count": 0,
+    "failure_count": 0,
+    "signature": "validate_email_format(email: str) -> bool",
+    "docstring": "Validate email address format using regex pattern. Returns True if valid.",
+    "parameters": null,
+    "return_type": null,
+    "dependencies": null,
+    "module_path": null
+  }
+}

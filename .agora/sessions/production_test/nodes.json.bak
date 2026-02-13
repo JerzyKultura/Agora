@@ -1,0 +1,87 @@
+{
+  "enrich_span": {
+    "name": "enrich_span",
+    "code": "\"\"\"\nAuto-generated Agora Node: enrich_span\n\nSource: /Users/anirudhanil/Desktop/agora3/Agora/agora/wide_events.py:140\nModule: wide_events\nTags: general\n\"\"\"\n\nfrom agora.agora_tracer import agora_node\nfrom wide_events import enrich_span\n\n@agora_node(name=\"enrich_spanNode\")\ndef enrich_span_node(shared):\n    \"\"\"\n    Agora node wrapper for enrich_span\n    \n    Original Documentation:\n    Enrich an OpenTelemetry span with business context.\n    \n    Args:\n        span: The span to enrich\n        context: Business context to add\n    \n    Example:\n        with tracer.start_as_current_span(\"chat_completion\") as span:\n            enrich_span(span, context)\n            response = client.chat.completions.create(...)\n    \n    Parameters (from shared state):\n        span (Span)\n        context (BusinessContext)\n    \n    Returns: None\n    \n    \"\"\"\n    # Extract parameters from shared state\n    span = shared.get(\"span\")\n    context = shared.get(\"context\")\n    \n    # Call original function\n    result = enrich_span(span, context)\n    \n    # Store result in shared state\n    shared[\"enrich_span_result\"] = result\n    \n    return \"default\"  # Routing key",
+    "tags": [
+      "general"
+    ],
+    "created_at": "2026-02-08T11:29:22.720340",
+    "last_used": "2026-02-08T12:25:05.423012",
+    "usage_count": 0,
+    "success_count": 0,
+    "failure_count": 0,
+    "signature": "enrich_span(span: Span, context: BusinessContext)",
+    "docstring": "Enrich an OpenTelemetry span with business context.\n\nArgs:\n    span: The span to enrich\n    context: Business context to add\n\nExample:\n    with tracer.start_as_current_span(\"chat_completion\") as span:\n        enrich_span(span, context)\n        response = client.chat.completions.create(...)",
+    "parameters": [
+      {
+        "name": "span",
+        "type_hint": "Span",
+        "required": true,
+        "default": null
+      },
+      {
+        "name": "context",
+        "type_hint": "BusinessContext",
+        "required": true,
+        "default": null
+      }
+    ],
+    "return_type": "None",
+    "dependencies": [],
+    "module_path": "wide_events"
+  },
+  "enrich_current_span": {
+    "name": "enrich_current_span",
+    "code": "\"\"\"\nAuto-generated Agora Node: enrich_current_span\n\nSource: /Users/anirudhanil/Desktop/agora3/Agora/agora/wide_events.py:160\nModule: wide_events\nTags: general\n\"\"\"\n\nfrom agora.agora_tracer import agora_node\nfrom wide_events import enrich_current_span\n\n@agora_node(name=\"enrich_current_spanNode\")\ndef enrich_current_span_node(shared):\n    \"\"\"\n    Agora node wrapper for enrich_current_span\n    \n    Original Documentation:\n    Enrich the current active span with business context.\n    \n    This is the easiest way to add context - just call this function\n    and it will enrich whatever span is currently active.\n    \n    Example:\n        # Traceloop auto-instruments this, creating a span\n        enrich_current_span(context)  # Add your business context\n        response = client.chat.completions.create(...)\n    \n    Parameters (from shared state):\n        context (BusinessContext)\n    \n    Returns: None\n    \n    \"\"\"\n    # Extract parameters from shared state\n    context = shared.get(\"context\")\n    \n    # Call original function\n    result = enrich_current_span(context)\n    \n    # Store result in shared state\n    shared[\"enrich_current_span_result\"] = result\n    \n    return \"default\"  # Routing key",
+    "tags": [
+      "general"
+    ],
+    "created_at": "2026-02-08T11:29:22.720834",
+    "last_used": "2026-02-08T12:25:05.424490",
+    "usage_count": 0,
+    "success_count": 0,
+    "failure_count": 0,
+    "signature": "enrich_current_span(context: BusinessContext)",
+    "docstring": "Enrich the current active span with business context.\n\nThis is the easiest way to add context - just call this function\nand it will enrich whatever span is currently active.\n\nExample:\n    # Traceloop auto-instruments this, creating a span\n    enrich_current_span(context)  # Add your business context\n    response = client.chat.completions.create(...)",
+    "parameters": [
+      {
+        "name": "context",
+        "type_hint": "BusinessContext",
+        "required": true,
+        "default": null
+      }
+    ],
+    "return_type": "None",
+    "dependencies": [
+      "enrich_span"
+    ],
+    "module_path": "wide_events"
+  },
+  "create_wide_event_decorator": {
+    "name": "create_wide_event_decorator",
+    "code": "\"\"\"\nAuto-generated Agora Node: create_wide_event_decorator\n\nSource: /Users/anirudhanil/Desktop/agora3/Agora/agora/wide_events.py:180\nModule: wide_events\nTags: creation\n\"\"\"\n\nfrom agora.agora_tracer import agora_node\nfrom wide_events import create_wide_event_decorator\n\n@agora_node(name=\"create_wide_event_decoratorNode\")\ndef create_wide_event_decorator_node(shared):\n    \"\"\"\n    Agora node wrapper for create_wide_event_decorator\n    \n    Original Documentation:\n    Decorator that automatically enriches spans with business context.\n    \n    Args:\n        context_builder: Function that takes request args and returns BusinessContext\n    \n    Example:\n        def build_context(user_id, session_id):\n            user = get_user(user_id)\n            return BusinessContext(\n                user_id=user_id,\n                subscription_tier=user.subscription,\n                session_id=session_id\n            )\n    \n        @create_wide_event_decorator(build_context)\n        def process_chat(user_id, session_id, message):\n            enrich_current_span(build_context(user_id, session_id))\n            return client.chat.completions.create(...)\n    \n    Parameters (from shared state):\n        context_builder\n    \n    \"\"\"\n    # Extract parameters from shared state\n    context_builder = shared.get(\"context_builder\")\n    \n    # Call original function\n    result = create_wide_event_decorator(context_builder)\n    \n    # Store result in shared state\n    shared[\"create_wide_event_decorator_result\"] = result\n    \n    return \"default\"  # Routing key",
+    "tags": [
+      "creation"
+    ],
+    "created_at": "2026-02-08T11:29:22.721369",
+    "last_used": "2026-02-08T12:25:05.424858",
+    "usage_count": 0,
+    "success_count": 0,
+    "failure_count": 0,
+    "signature": "create_wide_event_decorator(context_builder)",
+    "docstring": "Decorator that automatically enriches spans with business context.\n\nArgs:\n    context_builder: Function that takes request args and returns BusinessContext\n\nExample:\n    def build_context(user_id, session_id):\n        user = get_user(user_id)\n        return BusinessContext(\n            user_id=user_id,\n            subscription_tier=user.subscription,\n            session_id=session_id\n        )\n\n    @create_wide_event_decorator(build_context)\n    def process_chat(user_id, session_id, message):\n        enrich_current_span(build_context(user_id, session_id))\n        return client.chat.completions.create(...)",
+    "parameters": [
+      {
+        "name": "context_builder",
+        "type_hint": null,
+        "required": true,
+        "default": null
+      }
+    ],
+    "return_type": null,
+    "dependencies": [
+      "enrich_current_span"
+    ],
+    "module_path": "wide_events"
+  }
+}
