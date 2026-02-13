@@ -1,1 +1,47 @@
-"""Package marker for backend models."""
+"""Package marker for backend models - re-exports from shared_models.py"""
+
+from .shared_models import (
+    OrganizationCreate,
+    OrganizationResponse,
+    UserCreate,
+    UserResponse,
+    ProjectCreate,
+    ProjectUpdate,
+    ProjectResponse,
+    WorkflowCreate,
+    WorkflowUpdate,
+    WorkflowResponse,
+    NodeCreate,
+    NodeUpdate,
+    NodeResponse,
+    EdgeCreate,
+    EdgeResponse,
+    ExecutionCreate,
+    ExecutionResponse,
+    NodeExecutionResponse,
+    APIKeyCreate,
+    APIKeyResponse,
+)
+
+__all__ = [
+    "OrganizationCreate",
+    "OrganizationResponse",
+    "UserCreate",
+    "UserResponse",
+    "ProjectCreate",
+    "ProjectUpdate",
+    "ProjectResponse",
+    "WorkflowCreate",
+    "WorkflowUpdate",
+    "WorkflowResponse",
+    "NodeCreate",
+    "NodeUpdate",
+    "NodeResponse",
+    "EdgeCreate",
+    "EdgeResponse",
+    "ExecutionCreate",
+    "ExecutionResponse",
+    "NodeExecutionResponse",
+    "APIKeyCreate",
+    "APIKeyResponse",
+]

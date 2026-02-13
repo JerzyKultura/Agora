@@ -18,7 +18,7 @@ async def get_workflow(workflow_id: UUID, user = Depends(get_current_user), supa
         response = supabase.table("workflows")\
             .select("*")\
             .eq("id", str(workflow_id))\
-            .maybe_single()\
+            .maybeSingle()\
             .execute()
 
         if not response.data:
@@ -98,7 +98,7 @@ async def get_node(workflow_id: UUID, node_id: UUID, user = Depends(get_current_
             .select("*")\
             .eq("id", str(node_id))\
             .eq("workflow_id", str(workflow_id))\
-            .maybe_single()\
+            .maybeSingle()\
             .execute()
 
         if not response.data:

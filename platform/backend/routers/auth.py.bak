@@ -79,7 +79,7 @@ async def sign_in(request: SignInRequest, supabase: Client = Depends(get_supabas
         user_org = supabase.table("user_organizations")\
             .select("organization_id")\
             .eq("user_id", auth_response.user.id)\
-            .maybe_single()\
+            .maybeSingle()\
             .execute()
 
         org_id = user_org.data["organization_id"] if user_org.data else None

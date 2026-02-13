@@ -112,7 +112,7 @@ async def _gemini_summary(prompt: str, api_key: str) -> Optional[str]:
         import google.generativeai as genai
         
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-pro')
+        model = genai.GenerativeModel('gemini-1.5-flash')
         
         # Use async API to avoid blocking FastAPI event loop
         response = await model.generate_content_async(prompt)
@@ -131,7 +131,7 @@ async def _openai_summary(prompt: str, api_key: str) -> Optional[str]:
         client = AsyncOpenAI(api_key=api_key)
         
         response = await client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "You are a concise technical analyst."},
                 {"role": "user", "content": prompt}

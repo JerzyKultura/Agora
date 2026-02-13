@@ -39,7 +39,7 @@ async def get_execution(execution_id: UUID, user = Depends(get_current_user), su
         response = supabase.table("executions")\
             .select("*")\
             .eq("id", str(execution_id))\
-            .maybe_single()\
+            .maybeSingle()\
             .execute()
 
         if not response.data:
@@ -70,7 +70,7 @@ async def get_execution_timeline(execution_id: UUID, user = Depends(get_current_
         execution_response = supabase.table("executions")\
             .select("*")\
             .eq("id", str(execution_id))\
-            .maybe_single()\
+            .maybeSingle()\
             .execute()
 
         if not execution_response.data:

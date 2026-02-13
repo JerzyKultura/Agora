@@ -31,7 +31,7 @@ async def create_project(project: ProjectCreate, user = Depends(get_current_user
         user_org = supabase.table("user_organizations")\
             .select("organization_id")\
             .eq("user_id", user.user.id)\
-            .maybe_single()\
+            .maybeSingle()\
             .execute()
 
         if not user_org.data:
@@ -55,7 +55,7 @@ async def list_projects(user = Depends(get_current_user), supabase: Client = Dep
         user_org = supabase.table("user_organizations")\
             .select("organization_id")\
             .eq("user_id", user.user.id)\
-            .maybe_single()\
+            .maybeSingle()\
             .execute()
 
         if not user_org.data:
@@ -79,7 +79,7 @@ async def get_project(project_id: UUID, user = Depends(get_current_user), supaba
         response = supabase.table("projects")\
             .select("*")\
             .eq("id", str(project_id))\
-            .maybe_single()\
+            .maybeSingle()\
             .execute()
 
         if not response.data:

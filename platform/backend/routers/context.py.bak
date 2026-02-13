@@ -33,23 +33,6 @@ FAILURE_QUERY = os.getenv("SALIENCE_FAILURE_QUERY", "critical production errors 
 CODE_QUERY = os.getenv("SALIENCE_CODE_QUERY", "significant code changes affecting core functionality")
 
 
-def _parse_timestamp(timestamp_str: str) -> datetime:
-    """
-    Parse timestamp string, handling extra decimal places in microseconds.
-    PostgreSQL can return timestamps with >6 decimal places which breaks Python's fromisoformat.
-    """
-    import re
-    # Replace Z with +00:00
-    ts = timestamp_str.replace("Z", "+00:00")
-    
-    # Truncate microseconds to 6 digits if needed
-    # Pattern: digits.MORE_THAN_6_DIGITS+timezone
-    pattern = r'(\.\d{6})\d+([\+\-]\d{2}:\d{2})'
-    ts = re.sub(pattern, r'\1\2', ts)
-    
-    return datetime.fromisoformat(ts)
-
-
 async def cleanup_expired_cache(supabase: Client):
     """
     Delete expired cache entries.
@@ -78,7 +61,7 @@ async def check_cache(
             .select("*")\
             .eq("project_id", project_id)\
             .gt("expires_at", datetime.now(timezone.utc).isoformat())\
-            .maybe_single()\
+            .maybeSingle()\
             .execute()
         
         return response.data
@@ -344,7 +327,7 @@ async def prime_context(
             .select("id, name")\
             .eq("id", project_id)\
             .eq("organization_id", org_id)\
-            .maybe_single()\
+            .maybeSingle()\
             .execute()
         
         if not project_check.data:
@@ -428,7 +411,7 @@ async def prime_context(
                     name=f["name"],
                     error_message=f["error_message"],
                     trace_id=f["trace_id"],
-                    timestamp=_parse_timestamp(f.get("timestamp")) if f.get("timestamp") else datetime.now(timezone.utc),
+                    timestamp=datetime.fromisoformat(f["timestamp"].replace("Z", "+00:00")) if f["timestamp"] else datetime.now(timezone.utc),
                     attributes=f.get("attributes", {})
                 )
                 for f in failures

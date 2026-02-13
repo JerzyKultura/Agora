@@ -1,0 +1,15 @@
+{
+    "mcpServers": {
+        "agora-context": {
+            "command": "/Users/anirudhanil/Desktop/agora3/Agora/.venv/bin/python3",
+            "args": [
+                "/Users/anirudhanil/Desktop/agora3/Agora/platform/mcp-server/server.py"
+            ],
+            "env": {
+                "AGORA_API_KEY": "agora_kZm1BBglxdHyEyaz1NmpxowSLbYvZWyK",
+                "AGORA_PROJECT_ID": "97be4a93-efe3-4374-b99b-f73dbb958ed9",
+                "AGORA_BACKEND_URL": "http://localhost:8000"
+            }
+        }
+    }
+}

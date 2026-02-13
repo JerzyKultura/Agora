@@ -100,7 +100,7 @@ async def get_current_org(
         .select("*, organizations!inner(id, name)")\
         .eq("key_hash", key_hash)\
         .is_("revoked_at", "null")\
-        .maybe_single()\
+        .maybeSingle()\
         .execute()
     
     if not response.data:
@@ -209,7 +209,7 @@ async def start_execution(
                 .select("id")\
                 .eq("organization_id", str(org_id))\
                 .eq("name", data.project_name)\
-                .maybe_single()\
+                .maybeSingle()\
                 .execute()
             project = proj_response.data
 
@@ -225,7 +225,7 @@ async def start_execution(
             .select("id")\
             .eq("project_id", str(project["id"]))\
             .eq("name", data.workflow_name)\
-            .maybe_single()\
+            .maybeSingle()\
             .execute()
         workflow = workflow_response.data
 
@@ -263,7 +263,7 @@ async def complete_execution(
         exec_response = supabase.table("executions")\
             .select("*, workflows!inner(projects!inner(organization_id))")\
             .eq("id", str(execution_id))\
-            .maybe_single()\
+            .maybeSingle()\
             .execute()
 
         if not exec_response.data:
@@ -302,7 +302,7 @@ async def add_node_execution(
         exec_response = supabase.table("executions")\
             .select("workflows!inner(id, project_id, projects!inner(organization_id))")\
             .eq("id", str(execution_id))\
-            .maybe_single()\
+            .maybeSingle()\
             .execute()
 
         if not exec_response.data:
@@ -318,7 +318,7 @@ async def add_node_execution(
             .select("id")\
             .eq("workflow_id", str(workflow_id))\
             .eq("name", data.node_name)\
-            .maybe_single()\
+            .maybeSingle()\
             .execute()
         node = node_response.data
 
@@ -361,7 +361,7 @@ async def add_telemetry_span(
         exec_response = supabase.table("executions")\
             .select("workflows!inner(projects!inner(organization_id))")\
             .eq("id", str(execution_id))\
-            .maybe_single()\
+            .maybeSingle()\
             .execute()
 
         if not exec_response.data:
@@ -403,7 +403,7 @@ async def add_telemetry_event(
         exec_response = supabase.table("executions")\
             .select("workflows!inner(projects!inner(organization_id))")\
             .eq("id", str(execution_id))\
-            .maybe_single()\
+            .maybeSingle()\
             .execute()
 
         if not exec_response.data:
