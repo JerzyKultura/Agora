@@ -6,6 +6,14 @@ from database import get_supabase
 from supabase import Client
 from pydantic import BaseModel
 import hashlib
+import sys
+from pathlib import Path
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent))
+
+from models.otel import OTelTracesData
+from utils.otel_transformer import flatten_otel_spans
 
 router = APIRouter(prefix="/telemetry", tags=["Telemetry"])
 
@@ -58,44 +66,138 @@ class TelemetryEvent(BaseModel):
     timestamp: datetime
     data: Optional[Dict[str, Any]] = {}
 
-async def verify_api_key(x_api_key: str = Header(...), supabase: Client = Depends(get_supabase)) -> Dict[str, Any]:
-    if not x_api_key or not x_api_key.startswith("agora_"):
-        raise HTTPException(status_code=401, detail="Invalid API key format")
-
-    key_hash = hashlib.sha256(x_api_key.encode()).hexdigest()
-
+async def get_current_org(
+    authorization: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
+    supabase: Client = Depends(get_supabase)
+) -> Dict[str, Any]:
+    """
+    Validate API key from either Authorization or X-API-Key header.
+    
+    Supports:
+    - Authorization: Bearer agora_xxx (OTel standard)
+    - X-API-Key: agora_xxx (legacy)
+    """
+    api_key = None
+    
+    # Try Authorization header first (OTel/Traceloop standard)
+    if authorization and authorization.startswith("Bearer "):
+        api_key = authorization.replace("Bearer ", "")
+    # Fallback to X-API-Key (legacy)
+    elif x_api_key:
+        api_key = x_api_key
+    
+    if not api_key or not api_key.startswith("agora_"):
+        raise HTTPException(
+            status_code=401,
+            detail="Missing or invalid API key. Use 'Authorization: Bearer agora_xxx' or 'X-API-Key: agora_xxx'"
+        )
+    
+    # Hash and validate
+    key_hash = hashlib.sha256(api_key.encode()).hexdigest()
+    
     response = supabase.table("api_keys")\
         .select("*, organizations!inner(id, name)")\
         .eq("key_hash", key_hash)\
         .is_("revoked_at", "null")\
         .maybeSingle()\
         .execute()
-
+    
     if not response.data:
         raise HTTPException(status_code=401, detail="Invalid or revoked API key")
-
+    
     api_key_data = response.data
-
+    
+    # Check expiration
     if api_key_data.get("expires_at"):
-        from datetime import datetime
         expires_at = datetime.fromisoformat(api_key_data["expires_at"].replace("Z", "+00:00"))
         if expires_at < datetime.now(expires_at.tzinfo):
             raise HTTPException(status_code=401, detail="API key expired")
-
+    
+    # Update last used
     supabase.table("api_keys")\
         .update({"last_used_at": datetime.utcnow().isoformat()})\
         .eq("id", str(api_key_data["id"]))\
         .execute()
-
+    
     return {
         "organization_id": api_key_data["organization_id"],
         "organization_name": api_key_data["organizations"]["name"]
     }
 
+# Legacy alias for backward compatibility
+async def verify_api_key(x_api_key: str = Header(...), supabase: Client = Depends(get_supabase)) -> Dict[str, Any]:
+    """Legacy auth dependency. Use get_current_org instead."""
+    return await get_current_org(authorization=None, x_api_key=x_api_key, supabase=supabase)
+
+@router.post("/traces")
+async def ingest_otel_traces(
+    traces: OTelTracesData,
+    auth: Dict[str, Any] = Depends(get_current_org),
+    supabase: Client = Depends(get_supabase)
+):
+    """
+    Ingest OpenTelemetry traces in JSON format.
+    
+    Compatible with Traceloop/OpenLLMetry exporters.
+    
+    Example payload:
+    ```json
+    {
+      "resourceSpans": [{
+        "resource": {"attributes": [...]},
+        "scopeSpans": [{
+          "spans": [...]
+        }]
+      }]
+    }
+    ```
+    
+    Headers:
+    - Authorization: Bearer agora_xxx (recommended)
+    - X-API-Key: agora_xxx (legacy)
+    
+    Returns:
+    - spans_ingested: Number of spans successfully inserted
+    - organization_id: Organization ID from API key
+    """
+    try:
+        org_id = auth["organization_id"]
+        
+        # Flatten OTel structure into Supabase format
+        flat_spans = flatten_otel_spans(traces, str(org_id))
+        
+        if not flat_spans:
+            return {
+                "spans_ingested": 0,
+                "organization_id": str(org_id),
+                "message": "No spans to ingest"
+            }
+        
+        # Bulk insert to Supabase (batch size 100 for performance)
+        BATCH_SIZE = 100
+        total_inserted = 0
+        
+        for i in range(0, len(flat_spans), BATCH_SIZE):
+            batch = flat_spans[i:i + BATCH_SIZE]
+            result = supabase.table("telemetry_spans").insert(batch).execute()
+            total_inserted += len(result.data)
+        
+        return {
+            "spans_ingested": total_inserted,
+            "organization_id": str(org_id)
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to ingest traces: {str(e)}"
+        )
+
 @router.post("/executions/start")
 async def start_execution(
     data: ExecutionStart,
-    auth: Dict[str, Any] = Depends(verify_api_key),
+    auth: Dict[str, Any] = Depends(get_current_org),
     supabase: Client = Depends(get_supabase)
 ):
     try:

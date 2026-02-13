@@ -1,0 +1,311 @@
+"""
+Context Prime Router
+
+Intelligent context generation endpoint that fetches project intelligence
+from Supabase and generates concise summaries using LLM.
+"""
+
+from fastapi import APIRouter, HTTPException, Depends
+from typing import Dict, Any, List, Optional
+from uuid import UUID
+from datetime import datetime, timezone
+from supabase import Client
+
+from database import get_supabase
+from routers.telemetry import get_current_org
+from models.context import (
+    ContextPrimeRequest,
+    ContextPrimeResponse,
+    ContextMetadata,
+    RecentFailure,
+    CodebaseNode,
+    ActiveState
+)
+from utils.llm_client import generate_context_summary
+
+
+router = APIRouter(prefix="/v1/context", tags=["Context"])
+
+
+async def fetch_recent_failures(
+    supabase: Client,
+    org_id: str,
+    limit: int = 3
+) -> List[Dict[str, Any]]:
+    """
+    Fetch recent error spans from telemetry.
+    
+    Query: Last N spans where status = 'ERROR'
+    """
+    try:
+        response = supabase.table("telemetry_spans")\
+            .select("name, trace_id, start_time, attributes, status")\
+            .eq("organization_id", org_id)\
+            .eq("status", "ERROR")\
+            .order("start_time", desc=True)\
+            .limit(limit)\
+            .execute()
+        
+        failures = []
+        for row in response.data:
+            failures.append({
+                "name": row.get("name", "unknown"),
+                "error_message": row.get("attributes", {}).get("error_message") or 
+                                row.get("attributes", {}).get("exception.message") or
+                                row.get("attributes", {}).get("otel.status.message"),
+                "trace_id": row.get("trace_id", ""),
+                "timestamp": row.get("start_time"),
+                "attributes": row.get("attributes", {})
+            })
+        
+        return failures
+    except Exception as e:
+        print(f"Error fetching failures: {e}")
+        return []
+
+
+async def fetch_codebase_map(
+    supabase: Client,
+    org_id: str,
+    project_id: str,
+    limit: int = 10
+) -> List[Dict[str, Any]]:
+    """
+    Fetch recently updated code nodes.
+    
+    Query: Last N functions/classes ordered by updated_at
+    """
+    try:
+        response = supabase.table("nodes")\
+            .select("name, node_type, signature, file_path, updated_at")\
+            .eq("organization_id", org_id)\
+            .eq("project_id", project_id)\
+            .in_("node_type", ["function", "class"])\
+            .order("updated_at", desc=True)\
+            .limit(limit)\
+            .execute()
+        
+        nodes = []
+        for row in response.data:
+            nodes.append({
+                "name": row.get("name", "unknown"),
+                "node_type": row.get("node_type", "unknown"),
+                "signature": row.get("signature"),
+                "file_path": row.get("file_path", "unknown"),
+                "updated_at": row.get("updated_at")
+            })
+        
+        return nodes
+    except Exception as e:
+        print(f"Error fetching codebase: {e}")
+        return []
+
+
+async def fetch_active_state(
+    supabase: Client,
+    org_id: str,
+    project_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Fetch latest execution state.
+    
+    Query: Most recent execution with workflow and state snapshot
+    """
+    try:
+        # Get latest execution for project
+        exec_response = supabase.table("executions")\
+            .select("id, status, started_at, completed_at, workflow_id, workflows!inner(name, project_id)")\
+            .eq("organization_id", org_id)\
+            .eq("workflows.project_id", project_id)\
+            .order("started_at", desc=True)\
+            .limit(1)\
+            .execute()
+        
+        if not exec_response.data:
+            return None
+        
+        execution = exec_response.data[0]
+        
+        # Get latest state snapshot for this execution
+        snapshot_response = supabase.table("shared_state_snapshots")\
+            .select("snapshot_data")\
+            .eq("execution_id", execution["id"])\
+            .order("created_at", desc=True)\
+            .limit(1)\
+            .execute()
+        
+        snapshot_data = None
+        if snapshot_response.data:
+            snapshot_data = snapshot_response.data[0].get("snapshot_data")
+        
+        return {
+            "execution_id": execution.get("id"),
+            "status": execution.get("status"),
+            "workflow_name": execution.get("workflows", {}).get("name"),
+            "snapshot_data": snapshot_data,
+            "started_at": execution.get("started_at")
+        }
+    except Exception as e:
+        print(f"Error fetching active state: {e}")
+        return None
+
+
+async def get_org_llm_config(
+    supabase: Client,
+    org_id: str
+) -> tuple[Optional[str], Optional[str]]:
+    """
+    Fetch organization's LLM API key and provider (BYOK).
+    
+    Returns:
+        Tuple of (api_key, provider) or (None, None)
+    """
+    try:
+        response = supabase.table("organizations")\
+            .select("llm_api_key_encrypted, llm_provider")\
+            .eq("id", org_id)\
+            .single()\
+            .execute()
+        
+        if response.data:
+            encrypted_key = response.data.get("llm_api_key_encrypted")
+            provider = response.data.get("llm_provider")
+            
+            # Decrypt API key if present
+            if encrypted_key:
+                from utils.encryption import decrypt_api_key
+                try:
+                    decrypted_key = decrypt_api_key(encrypted_key)
+                    return decrypted_key, provider
+                except Exception as e:
+                    print(f"Error decrypting API key: {e}")
+                    return None, None
+            
+            return None, provider
+        
+        return None, None
+    except Exception as e:
+        print(f"Error fetching org LLM config: {e}")
+        return None, None
+
+
+@router.post("/prime", response_model=ContextPrimeResponse)
+async def prime_context(
+    request: ContextPrimeRequest,
+    auth: Dict[str, Any] = Depends(get_current_org),
+    supabase: Client = Depends(get_supabase)
+):
+    """
+    Generate intelligent context summary for a project.
+    
+    Fetches:
+    1. Recent failures from telemetry_spans
+    2. Codebase map from nodes
+    3. Active execution state
+    
+    Then uses LLM (with BYOK support) to generate concise summary.
+    
+    Headers:
+    - Authorization: Bearer agora_xxx
+    - X-API-Key: agora_xxx
+    
+    Request:
+    ```json
+    {
+      "project_id": "uuid"
+    }
+    ```
+    
+    Response:
+    ```json
+    {
+      "context_summary": "Project: X. Status: Y. Recommended focus: Z.",
+      "metadata": {...}
+    }
+    ```
+    """
+    try:
+        org_id = str(auth["organization_id"])
+        project_id = str(request.project_id)
+        
+        # Verify project belongs to organization
+        project_check = supabase.table("projects")\
+            .select("id, name")\
+            .eq("id", project_id)\
+            .eq("organization_id", org_id)\
+            .maybeSingle()\
+            .execute()
+        
+        if not project_check.data:
+            raise HTTPException(
+                status_code=404,
+                detail="Project not found or access denied"
+            )
+        
+        project_name = project_check.data.get("name", "Unknown Project")
+        
+        # Fetch intelligence data in parallel
+        failures = await fetch_recent_failures(supabase, org_id)
+        codebase = await fetch_codebase_map(supabase, org_id, project_id)
+        active_state = await fetch_active_state(supabase, org_id, project_id)
+        
+        # Get organization's LLM config (BYOK)
+        org_llm_key, org_llm_provider = await get_org_llm_config(supabase, org_id)
+        
+        # Generate summary using LLM
+        summary, provider_used = await generate_context_summary(
+            failures=failures,
+            codebase=codebase,
+            active_state=active_state,
+            project_name=project_name,
+            org_llm_key=org_llm_key,
+            org_llm_provider=org_llm_provider
+        )
+        
+        # Build response
+        metadata = ContextMetadata(
+            recent_failures=[
+                RecentFailure(
+                    name=f["name"],
+                    error_message=f["error_message"],
+                    trace_id=f["trace_id"],
+                    timestamp=datetime.fromisoformat(f["timestamp"].replace("Z", "+00:00")) if f["timestamp"] else datetime.now(timezone.utc),
+                    attributes=f.get("attributes", {})
+                )
+                for f in failures
+            ],
+            codebase_snapshot=[
+                CodebaseNode(
+                    name=c["name"],
+                    node_type=c["node_type"],
+                    signature=c.get("signature"),
+                    file_path=c["file_path"],
+                    updated_at=datetime.fromisoformat(c["updated_at"].replace("Z", "+00:00")) if c["updated_at"] else datetime.now(timezone.utc)
+                )
+                for c in codebase
+            ],
+            active_state=ActiveState(
+                execution_id=UUID(active_state["execution_id"]) if active_state and active_state.get("execution_id") else None,
+                status=active_state.get("status") if active_state else None,
+                workflow_name=active_state.get("workflow_name") if active_state else None,
+                snapshot_data=active_state.get("snapshot_data") if active_state else None,
+                started_at=datetime.fromisoformat(active_state["started_at"].replace("Z", "+00:00")) if active_state and active_state.get("started_at") else None
+            ) if active_state else None
+        )
+        
+        return ContextPrimeResponse(
+            project_id=UUID(project_id),
+            organization_id=UUID(org_id),
+            context_summary=summary,
+            metadata=metadata,
+            generated_at=datetime.now(timezone.utc),
+            llm_provider=provider_used
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate context: {str(e)}"
+        )
