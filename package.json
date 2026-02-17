@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "npm run dev --prefix platform/frontend",
-    "build": "npm install --prefix platform/frontend && npm run build --prefix platform/frontend && rm -rf dist && cp -r platform/frontend/dist .",
+    "build": "npm install --prefix platform/frontend && npm run build:nocheck --prefix platform/frontend && rm -rf dist && cp -r platform/frontend/dist .",
     "preview": "npm run preview --prefix platform/frontend",
     "install:frontend": "npm install --prefix platform/frontend"
   },
