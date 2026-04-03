@@ -1,4 +1,4 @@
-# Agora Framework
+# Agora - Agent Orchestrator
 
 **Workflow orchestration with comprehensive audit logging and distributed tracing**
 
